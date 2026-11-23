@@ -1,0 +1,430 @@
+"""The Discord bot: wires every service together and owns background tasks."""
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Optional
+
+import aiohttp
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from ai.gemini import GeminiProvider
+from ai.manager import AIManager
+from ai.providers.ollama import OllamaProvider
+from ai.providers.openai_compat import OpenAICompatProvider
+from config import Settings
+from core import events as ev
+from core.events import EventBus
+from core.logging_setup import register_secret
+from database.backups import create_backup
+from database.connection import Database
+from database.models import PRIORITY_LABEL, iso_now
+from dispatch.announcements import ANNOUNCEMENT_UPDATED
+from dispatch.core import DispatchCore
+from erlc.synchronization import SyncManager
+from erlc.webhooks import WebhookServer
+from panels import (administration, ai_config, bolos, citizen_services, dashboard, erlc as erlc_panel, incidents as incidents_panel,
+                    reports as reports_panel, statistics, units as units_panel, voice as voice_panel)
+from panels.base import PanelManager
+from security.audit import AuditLog
+from security.permissions import PermissionManager
+from security.secrets import SecretStore
+from security.validation import RateLimiter
+from voice.audio_queue import AnnouncementPlayer
+from voice.commands import VoiceCommandProcessor
+from voice.connection import VoiceManager
+from voice.speech_to_text import STTEngine
+from voice.text_to_speech import TTSEngine
+
+log = logging.getLogger(__name__)
+
+PANEL_MODULES = {
+    "dashboard": dashboard, "incidents": incidents_panel, "units": units_panel, "voice": voice_panel,
+    "citizen": citizen_services, "reports": reports_panel, "bolos": bolos, "ai": ai_config, "erlc": erlc_panel,
+    "admin": administration, "stats": statistics,
+}
+
+COGS = ["bot.commands.setup", "bot.commands.dispatch", "bot.commands.units", "bot.commands.records", "bot.commands.system"]
+
+
+class DispatchBot(commands.Bot):
+    def __init__(self, settings: Settings):
+        intents = discord.Intents.default()
+        intents.members = True        # map voice speakers / roles to officers
+        intents.voice_states = True
+        super().__init__(command_prefix=commands.when_mentioned, intents=intents, help_command=None)
+        self.settings = settings
+        self.started_at_iso = iso_now()
+        self.bus = EventBus()
+        self.db = Database(settings.database_path)
+        self.audit = AuditLog(self.db)
+        self.permissions = PermissionManager(self.db)
+        self.ratelimiter = RateLimiter(max_calls=8, per_seconds=10)
+        self.http_session: Optional[aiohttp.ClientSession] = None
+        self.secrets: SecretStore = None  # type: ignore[assignment]
+        self.ai: AIManager = None  # type: ignore[assignment]
+        self.core: DispatchCore = None  # type: ignore[assignment]
+        self.sync: SyncManager = None  # type: ignore[assignment]
+        self.voice = VoiceManager(self, self.db, self.bus, settings.ffmpeg_path)
+        self.tts = TTSEngine(settings.piper_voice_dir, settings.piper_default_voice, settings.data_dir / "tts_tmp")
+        self.stt = STTEngine(settings.whisper_model, settings.whisper_device, settings.whisper_compute_type)
+        self.player: AnnouncementPlayer = None  # type: ignore[assignment]
+        self.voice_commands: VoiceCommandProcessor = None  # type: ignore[assignment]
+        self.panels = PanelManager(self)
+        self.webhook_server: Optional[WebhookServer] = None
+        self._tasks: list[asyncio.Task] = []
+        self._card_locks: dict[int, asyncio.Lock] = {}
+        self._card_pending: set[int] = set()
+        for secret in (settings.discord_token, settings.gemini_api_key, settings.erlc_server_key, settings.erlc_global_key,
+                       settings.openai_compat_api_key):
+            register_secret(secret)
+
+    def session(self) -> aiohttp.ClientSession:
+        if self.http_session is None or self.http_session.closed:
+            self.http_session = aiohttp.ClientSession()
+        return self.http_session
+
+    # ------------------------------------------------------------------ startup
+    async def setup_hook(self) -> None:
+        s = self.settings
+        s.ensure_dirs()
+        await self.db.connect()
+        self.secrets = SecretStore(self.db, s.secret_key, s.data_dir / "secret.key")
+        providers = [
+            GeminiProvider(s.gemini_api_key, s.gemini_model, self.session),
+            OllamaProvider(s.ollama_base_url, s.ollama_model, self.session),
+            OpenAICompatProvider(s.openai_compat_base_url, s.openai_compat_api_key, s.openai_compat_model, self.session),
+        ]
+        # Ollama / OpenAI-compatible are only "configured" when their URL is set in .env.
+        self.ai = AIManager(self.db, self.bus, providers, daily_limits={"gemini": s.gemini_daily_request_limit},
+                            rpm_limits={"gemini": 8})
+        self.core = DispatchCore(self.db, self.bus, self.audit, self.ai)
+        self.sync = SyncManager(self.db, self.bus, self.secrets, self.session, lambda: self.core.intake,
+                                base_url=s.erlc_base_url, env_server_key=s.erlc_server_key, env_global_key=s.erlc_global_key,
+                                env_guild_id=s.dev_guild_id, poll_seconds=s.erlc_poll_seconds)
+        self.player = AnnouncementPlayer(self.voice, self.tts, self.core.announcements, self.bus)
+        self.voice_commands = VoiceCommandProcessor(self.core, self.voice, self.stt, self.permissions, self._voice_log,
+                                                    self._member_lookup)
+        self.voice.on_utterance = self.voice_commands.submit
+        recovered = await self.core.announcements.recover_interrupted()
+        if recovered:
+            log.info("Recovered %s interrupted announcement(s) back into the queue", recovered)
+
+        for name, module in PANEL_MODULES.items():
+            self.panels.register(name, module.build)
+        # Persistent views: panel buttons keep working after a restart.
+        for view in (dashboard.DashboardView(), incidents_panel.IncidentsPanelView(), units_panel.UnitsView(), voice_panel.VoiceView(),
+                     citizen_services.CitizenView(), reports_panel.ReportsPanelView(), bolos.BoloPanelView(), ai_config.AIView(),
+                     erlc_panel.ERLCView(), administration.AdminView(), statistics.StatsView()):
+            self.add_view(view)
+        self.add_dynamic_items(incidents_panel.IncidentAction, reports_panel.ReportAction, bolos.BoloAction)
+
+        self.bus.subscribe(ev.ACTIVITY, self._on_activity)
+        self.bus.subscribe(ev.INCIDENT_CREATED, self._on_incident_change)
+        self.bus.subscribe(ev.INCIDENT_UPDATED, self._on_incident_change)
+        self.bus.subscribe(ev.ASSIGNMENT_CHANGED, self._on_incident_change)
+        self.bus.subscribe(ev.INCIDENT_CLOSED, self._on_incident_change)
+        self.bus.subscribe(ev.INCIDENT_ASSESSED, self._on_assessed)
+        self.bus.subscribe(ANNOUNCEMENT_UPDATED, self._on_announcement)
+        self.bus.subscribe(ev.BACKUP_REQUESTED, self._on_backup_requested)
+
+        for cog in COGS:
+            await self.load_extension(cog)
+        self.tree.on_error = self._on_app_command_error
+        if s.dev_guild_id:
+            guild = discord.Object(id=s.dev_guild_id)
+            self.tree.copy_global_to(guild=guild)
+            synced = await self.tree.sync(guild=guild)
+            log.info("Synced %d commands to development guild %s", len(synced), s.dev_guild_id)
+        else:
+            synced = await self.tree.sync()
+            log.info("Synced %d global commands (can take up to an hour to appear)", len(synced))
+
+        if s.webhook_enabled:
+            self.webhook_server = WebhookServer(s.webhook_host, s.webhook_port, self.sync.resolve_webhook_token, self.sync.on_webhook)
+            await self.webhook_server.start()
+
+        self.voice.start_watchdog()
+        self.voice_commands.start()
+        self._tasks += [asyncio.create_task(self._repeat_loop(), name="repeat-announcements"),
+                        asyncio.create_task(self._backup_loop(), name="daily-backup"),
+                        asyncio.create_task(self._health_loop(), name="health")]
+
+    async def on_ready(self) -> None:
+        log.info("Logged in as %s (%s) in %d guild(s)", self.user, self.user.id if self.user else "?", len(self.guilds))
+        for guild in self.guilds:
+            await self._init_guild(guild)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        await self._init_guild(guild)
+
+    async def _init_guild(self, guild: discord.Guild) -> None:
+        await self.core.units.ensure_defaults(guild.id, guild.name)
+        await self.ai.ensure_guild(guild.id)
+        self.sync.start_guild(guild.id)
+        self.player.start_guild(guild.id)
+        asyncio.create_task(self.panels.refresh_all(guild.id, force=True))
+
+    async def close(self) -> None:
+        log.info("Shutting down gracefully…")
+        for t in self._tasks:
+            t.cancel()
+        try:
+            if self.sync:
+                await self.sync.stop()
+            if self.player:
+                await self.player.stop()
+            await self.voice.shutdown()
+            if self.webhook_server:
+                await self.webhook_server.stop()
+        except Exception:
+            log.exception("Error during shutdown")
+        await super().close()
+        if self.http_session and not self.http_session.closed:
+            await self.http_session.close()
+        await self.db.close()
+        log.info("Shutdown complete.")
+
+    # ------------------------------------------------------------------ background tasks
+    async def _repeat_loop(self) -> None:
+        await self.wait_until_ready()
+        while True:
+            for g in list(self.guilds):
+                try:
+                    await self.core.repeat_tick(g.id)
+                except Exception:
+                    log.exception("Repeat tick failed for %s", g.id)
+            await asyncio.sleep(15)
+
+    async def _backup_loop(self) -> None:
+        await self.wait_until_ready()
+        while True:
+            await asyncio.sleep(24 * 3600)
+            try:
+                await create_backup(self.db, self.settings.backup_dir)
+            except Exception:
+                log.exception("Automatic backup failed")
+
+    async def _health_loop(self) -> None:
+        await self.wait_until_ready()
+        while True:
+            await asyncio.sleep(60)
+            try:
+                await self.db.fetchval("SELECT 1")
+            except Exception:
+                log.exception("Database health check failed")
+            for g in list(self.guilds):
+                gs = self.sync.guilds.get(g.id)
+                if gs is None or gs.task is None or gs.task.done():
+                    log.warning("ER:LC sync task for %s not running - restarting", g.id)
+                    self.sync.start_guild(g.id)
+                self.player.start_guild(g.id)
+                self.panels.schedule(g.id, "dashboard")
+                self.panels.schedule(g.id, "ai")
+
+    # ------------------------------------------------------------------ channels & notifications
+    async def channel_for(self, guild_id: int, key: str) -> Optional[discord.TextChannel]:
+        cid = await self.db.get_config(guild_id, key)
+        ch = self.get_channel(int(cid)) if cid else None
+        return ch if isinstance(ch, discord.TextChannel) else None
+
+    async def log_channel(self, guild_id: int) -> Optional[discord.TextChannel]:
+        return await self.channel_for(guild_id, "log_channel_id")
+
+    async def notify_admins(self, guild_id: int, text: str) -> None:
+        ch = await self.channel_for(guild_id, "admin_channel_id") or await self.log_channel(guild_id)
+        if ch:
+            try:
+                await ch.send(text, allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException:
+                pass
+
+    async def supervisor_mentions(self, guild_id: int) -> str:
+        roles = (await self.permissions.role_map(guild_id)).get("supervisor", [])
+        return " ".join(f"<@&{r}>" for r in roles)
+
+    async def notify_supervisors(self, guild_id: int, text: str, view: Optional[discord.ui.View] = None,
+                                 embed: Optional[discord.Embed] = None) -> Optional[discord.Message]:
+        ch = await self.channel_for(guild_id, "department_channel_id") or await self.log_channel(guild_id)
+        if ch is None:
+            return None
+        mention = await self.supervisor_mentions(guild_id)
+        try:
+            return await ch.send(f"{mention} {text}".strip(), view=view, embed=embed,
+                                 allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False))
+        except discord.HTTPException:
+            return None
+
+    async def post_department_message(self, guild_id: int, dep: dict, user: discord.abc.User, kind: str, text: str) -> bool:
+        ch = await self.channel_for(guild_id, "department_channel_id")
+        if ch is None:
+            return False
+        e = discord.Embed(title=f"📨 {kind} — {dep['name']}", description=text, colour=0x1F6FEB)
+        e.set_author(name=str(user), icon_url=user.display_avatar.url if hasattr(user, "display_avatar") else None)
+        mention = f"<@&{dep['role_id']}>" if dep.get("role_id") else ""
+        await ch.send(mention or None, embed=e, allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False))
+        return True
+
+    async def activity_feed(self, guild_id: int) -> list[dict]:
+        return await self.db.get_config(guild_id, "activity_feed", []) or []
+
+    async def _on_activity(self, e: ev.Event) -> None:
+        feed = await self.activity_feed(e.guild_id)
+        feed.append({"at": iso_now(), "text": str(e.data.get("text", ""))[:200]})
+        await self.db.set_config(e.guild_id, "activity_feed", feed[-15:])
+
+    # ------------------------------------------------------------------ dispatch log cards
+    async def _on_incident_change(self, e: ev.Event) -> None:
+        incident_id = e.data.get("incident_id")
+        if not incident_id:
+            return
+        if incident_id in self._card_pending:
+            return  # an update is already scheduled; it will read the latest state
+        self._card_pending.add(incident_id)
+        await asyncio.sleep(1.5)  # coalesce bursts of updates into one edit
+        self._card_pending.discard(incident_id)
+        lock = self._card_locks.setdefault(incident_id, asyncio.Lock())
+        async with lock:
+            await self._upsert_card(e.guild_id, incident_id)
+
+    async def _upsert_card(self, guild_id: int, incident_id: int) -> None:
+        from bot.ui import incident_embed
+        ch = await self.log_channel(guild_id)
+        inc = await self.core.incidents.get(incident_id)
+        if ch is None or inc is None:
+            return
+        units = await self.core.incidents.assigned_units(incident_id)
+        embed = incident_embed(inc, units, detailed=True)
+        view = discord.ui.View(timeout=None)
+        if inc["status"] != "closed":
+            view.add_item(incidents_panel.IncidentAction("view", incident_id, label="Open / Manage"))
+            view.add_item(incidents_panel.IncidentAction("attachme", incident_id))
+        row = await self.db.fetchone("SELECT * FROM incident_messages WHERE incident_id = ? AND kind = 'log_card'", (incident_id,))
+        try:
+            if row:
+                await ch.get_partial_message(row["message_id"]).edit(embed=embed, view=view)
+                return
+        except discord.NotFound:
+            pass
+        except discord.HTTPException as err:
+            log.warning("Could not edit incident card: %s", err)
+            return
+        try:
+            msg = await ch.send(embed=embed, view=view)
+            await self.db.execute(
+                "INSERT INTO incident_messages(incident_id, kind, channel_id, message_id) VALUES (?, 'log_card', ?, ?) "
+                "ON CONFLICT(incident_id, kind) DO UPDATE SET channel_id = excluded.channel_id, message_id = excluded.message_id",
+                (incident_id, ch.id, msg.id))
+        except discord.HTTPException as err:
+            log.warning("Could not post incident card: %s", err)
+
+    async def _on_assessed(self, e: ev.Event) -> None:
+        inc = await self.core.incidents.get(e.data["incident_id"])
+        if inc is None or inc["status"] == "closed":
+            return
+        needs_approval = inc["priority_status"] == "recommended" and inc.get("ai_priority")
+        if not needs_approval and not inc.get("supervisor_recommended"):
+            return
+        marker = f"{inc.get('ai_priority')}:{inc.get('supervisor_recommended')}"
+        row = await self.db.fetchone("SELECT marker FROM incident_messages WHERE incident_id = ? AND kind = 'supervisor_alert'", (inc["id"],))
+        if row and row["marker"] == marker:
+            return
+        view = discord.ui.View(timeout=None)
+        view.add_item(incidents_panel.IncidentAction("view", inc["id"], label="Open Incident"))
+        if needs_approval:
+            view.add_item(incidents_panel.IncidentAction("approve", inc["id"]))
+            view.add_item(incidents_panel.IncidentAction("priority", inc["id"]))
+        text = (f"🛡️ **Incident #{inc['number']}** — {inc.get('nature') or 'Unknown'} at {inc.get('location') or 'location unavailable'}.\n"
+                f"AI recommends **{PRIORITY_LABEL.get(inc.get('ai_priority') or '', '?')}** priority, {inc.get('recommended_units')} unit(s)."
+                + (" **Supervisor approval required.**" if needs_approval else " Supervisor notification recommended."))
+        msg = await self.notify_supervisors(e.guild_id, text, view=view)
+        if msg:
+            await self.db.execute(
+                "INSERT INTO incident_messages(incident_id, kind, channel_id, message_id, marker) VALUES (?, 'supervisor_alert', ?, ?, ?) "
+                "ON CONFLICT(incident_id, kind) DO UPDATE SET message_id = excluded.message_id, marker = excluded.marker",
+                (inc["id"], msg.channel.id, msg.id, marker))
+
+    async def _on_backup_requested(self, e: ev.Event) -> None:
+        if e.data.get("urgency") == "emergency":
+            unit = await self.core.units.unit(e.data["unit_id"]) if e.data.get("unit_id") else None
+            await self.notify_supervisors(e.guild_id, f"🆘 **EMERGENCY backup requested** by `{unit['callsign'] if unit else 'unknown unit'}`.")
+
+    async def _on_announcement(self, e: ev.Event) -> None:
+        status = e.data.get("status")
+        if status not in {"played", "muted", "failed"}:
+            return
+        row = await self.db.fetchone("SELECT * FROM announcements WHERE id = ?", (e.data["announcement_id"],))
+        if row is None or row["kind"] == "voice_reply":
+            return
+        ch = await self.log_channel(e.guild_id)
+        if ch is None:
+            return
+        icon = {"played": "🔊", "muted": "🔇", "failed": "⚠️"}[status]
+        suffix = {"played": "", "muted": " *(speech muted — text only)*", "failed": f" *(voice playback failed: {row['last_error']})*"}[status]
+        try:
+            await ch.send(f"{icon} **Dispatch:** {row['text'][:1800]}{suffix}", allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            pass
+
+    # ------------------------------------------------------------------ voice helpers
+    def _member_lookup(self, guild_id: int, user_id: int) -> Optional[discord.Member]:
+        guild = self.get_guild(guild_id)
+        return guild.get_member(user_id) if guild else None
+
+    async def _voice_log(self, guild_id: int, speaker: str, transcript: str, reply_text: str) -> None:
+        ch = await self.log_channel(guild_id)
+        if ch:
+            try:
+                await ch.send(f"🎙️ **{discord.utils.escape_markdown(speaker)}:** {discord.utils.escape_mentions(transcript)[:900]}\n"
+                              f"📡 **Dispatch:** {reply_text[:900]}", allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException:
+                pass
+
+    # ------------------------------------------------------------------ setup helpers
+    async def apply_private_channel_permissions(self, guild: Optional[discord.Guild]) -> None:
+        if guild is None:
+            return
+        cat_id = await self.db.get_config(guild.id, "private_category_id")
+        cat = guild.get_channel(int(cat_id)) if cat_id else None
+        if not isinstance(cat, discord.CategoryChannel):
+            return
+        roles = await self.permissions.role_map(guild.id)
+        overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                      guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, manage_messages=True)}
+        for group in ("admin", "supervisor", "dispatcher"):
+            for rid in roles.get(group, []):
+                role = guild.get_role(rid)
+                if role:
+                    overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
+        try:
+            await cat.edit(overwrites=overwrites)
+            for ch in cat.channels:
+                await ch.edit(sync_permissions=True)
+        except discord.HTTPException as e:
+            log.warning("Could not update private channel permissions: %s", e)
+
+    async def repair_panels(self, guild: discord.Guild) -> list[str]:
+        restored = []
+        locations = await self.db.get_config(guild.id, "panel_channels", {}) or {}
+        fallback = await self.channel_for(guild.id, "admin_channel_id")
+        for panel in await self.panels.missing(guild.id):
+            ch = self.get_channel(int(locations[panel])) if panel in locations else fallback
+            if ch is None:
+                continue
+            await self.panels.post(guild.id, panel, ch)
+            restored.append(panel)
+            await asyncio.sleep(0.5)
+        return restored
+
+    async def _on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        from bot.ui import reply
+        original = getattr(error, "original", error)
+        if isinstance(error, app_commands.CheckFailure):
+            return await reply(interaction, "⛔ You can't use this command.", error=True)
+        log.error("Command error in /%s", interaction.command.qualified_name if interaction.command else "?", exc_info=original)
+        await reply(interaction, "⚠️ Something went wrong while processing that. The error was logged.", error=True)
+
+    async def on_error(self, event_method: str, /, *args, **kwargs) -> None:
+        log.exception("Unhandled error in %s", event_method)

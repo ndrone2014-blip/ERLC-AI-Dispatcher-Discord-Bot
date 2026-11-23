@@ -1,0 +1,21 @@
+# Core
+discord.py[voice]>=2.7.1,<2.8
+aiohttp>=3.9
+aiosqlite>=0.20
+python-dotenv>=1.0
+cryptography>=42
+numpy>=1.26
+
+# Voice receive (officer speech). Alpha library - see docs/VOICE.md for DAVE caveats.
+discord-ext-voice-recv>=0.5.2a179
+
+# Speech-to-text (local, free)
+faster-whisper>=1.0
+
+# Text-to-speech (local, free)
+piper-tts>=1.2
+pyttsx3>=2.90 ; sys_platform == "win32"
+
+# Testing
+pytest>=8
+pytest-asyncio>=0.23
