@@ -39,6 +39,35 @@ DEFAULT_VOICE_SETTINGS = {
 }
 
 
+class _CryptoStormGuard(logging.Filter):
+    """Logging filter on the voice-recv reader: counts CryptoErrors (logged from the reader thread),
+    lets only the first one per burst through, and triggers recovery on the event loop."""
+
+    THRESHOLD = 15      # errors ...
+    WINDOW = 3.0        # ... within this many seconds = a storm
+    COOLDOWN = 20.0     # don't trigger recovery more often than this
+
+    def __init__(self, manager: "VoiceManager"):
+        super().__init__()
+        self.manager = manager
+        self.times: list[float] = []
+        self.last_trigger = 0.0
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        import time
+        if "CryptoError" not in record.getMessage():
+            return True
+        now = time.monotonic()
+        self.times = [t for t in self.times if now - t < self.WINDOW] + [now]
+        first = len(self.times) == 1
+        if len(self.times) >= self.THRESHOLD and now - self.last_trigger > self.COOLDOWN:
+            self.last_trigger = now
+            self.times.clear()
+            loop = self.manager.bot.loop
+            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self.manager.recover_receive()))
+        return first  # suppress the flood; one line per burst is enough
+
+
 @dataclass
 class GuildVoice:
     guild_id: int
@@ -48,6 +77,8 @@ class GuildVoice:
     reconnect_failures: int = 0
     last_error: Optional[str] = None
     last_playback: Optional[str] = None
+    connecting_since: Optional[float] = None
+    receive_recoveries: int = 0
 
 
 class VoiceManager:
@@ -296,9 +327,40 @@ class VoiceManager:
             return True
         return False
 
+    # ------------------------------------------------------------------ receive-error recovery
+    def install_receive_guard(self) -> None:
+        """discord-ext-voice-recv can keep a stale transport key after a reconnect (upstream issue #59),
+        making every received packet fail with 'CryptoError'. Detect such a storm, silence the log spam,
+        and rebuild the receiver (then, if needed, the whole connection)."""
+        guard = _CryptoStormGuard(self)
+        lg = logging.getLogger("discord.ext.voice_recv.reader")
+        lg.addFilter(guard)
+
+    async def recover_receive(self) -> None:
+        for guild in list(self.bot.guilds):
+            vc = self.voice_client(guild.id)
+            s = await self.settings(guild.id)
+            if vc is None or not s["listening"] or not self._is_recv(vc):
+                continue
+            g = self.gs(guild.id)
+            g.receive_recoveries += 1
+            if g.receive_recoveries % 2 == 1:
+                log.warning("Voice receive decrypt errors in guild %s - restarting the receiver", guild.id)
+                self.stop_listening(guild.id)
+                await asyncio.sleep(1)
+                self.start_listening(guild.id)
+            else:
+                log.warning("Voice receive still failing in guild %s - reconnecting voice", guild.id)
+                channel_id = vc.channel.id
+                self.stop_listening(guild.id)
+                await vc.disconnect(force=True)
+                await asyncio.sleep(2)
+                await self.join(guild.id, channel_id)
+
     # ------------------------------------------------------------------ watchdog
     def start_watchdog(self) -> None:
         if self._watchdog is None or self._watchdog.done():
+            self.install_receive_guard()
             self._watchdog = asyncio.create_task(self._watch(), name="voice-watchdog")
 
     async def _watch(self) -> None:
@@ -312,6 +374,19 @@ class VoiceManager:
                         continue
                     vc = self.voice_client(guild.id)
                     g = self.gs(guild.id)
+                    raw = guild.voice_client
+                    if vc is None and raw is not None:
+                        # A connection exists but is still (re)connecting - discord.py handles that itself.
+                        # Starting a second connection here causes rapid reconnects (and voice-recv key desync).
+                        g.connecting_since = g.connecting_since or asyncio.get_running_loop().time()
+                        if asyncio.get_running_loop().time() - g.connecting_since < 60:
+                            continue
+                        log.warning("Voice connection for guild %s stuck connecting for 60s - resetting it", guild.id)
+                        try:
+                            await raw.disconnect(force=True)
+                        except Exception:
+                            pass
+                    g.connecting_since = None
                     if vc is None:
                         backoff = min(300, 10 * (2 ** min(g.reconnect_failures, 5)))
                         g.reconnect_failures += 1

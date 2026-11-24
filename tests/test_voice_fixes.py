@@ -94,6 +94,27 @@ async def test_playback_waits_for_dave_encryption(db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_crypto_error_storm_triggers_one_recovery_and_hides_spam():
+    from voice.connection import _CryptoStormGuard
+    calls = []
+
+    class FakeManager:
+        bot = SimpleNamespace(loop=asyncio.get_running_loop())
+
+        async def recover_receive(self):
+            calls.append(1)
+
+    guard = _CryptoStormGuard(FakeManager())
+    rec = lambda: logging.LogRecord("discord.ext.voice_recv.reader", logging.ERROR, "", 0, "CryptoError decoding packet data", (), None)
+    shown = [guard.filter(rec()) for _ in range(40)]
+    await asyncio.sleep(0.05)
+    assert shown[0] is True and sum(shown) <= 3          # flood suppressed
+    assert calls == [1]                                    # exactly one recovery despite 40 errors (cooldown)
+    other = logging.LogRecord("x", logging.INFO, "", 0, "something else", (), None)
+    assert guard.filter(other) is True
+
+
+@pytest.mark.asyncio
 async def test_playback_refuses_when_dave_never_ready(db, monkeypatch):
     from voice import connection as vconn
     from voice.connection import VoiceManager
