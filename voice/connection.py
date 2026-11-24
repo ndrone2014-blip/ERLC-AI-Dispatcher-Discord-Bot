@@ -123,6 +123,7 @@ class VoiceManager:
                 vc = await channel.connect(cls=cls, self_deaf=False, timeout=20, reconnect=True)
             await self.update_settings(guild_id, channel_id=channel_id, autojoin=True)
             self.gs(guild_id).reconnect_failures = 0
+            asyncio.create_task(self._report_dave(guild_id))
             if settings["listening"]:
                 self.start_listening(guild_id)
             await self.bus.publish(ev.VOICE_STATUS, guild_id)
@@ -136,6 +137,17 @@ class VoiceManager:
         if vc:
             await vc.disconnect(force=True)
         await self.bus.publish(ev.VOICE_STATUS, guild_id)
+
+    async def _report_dave(self, guild_id: int) -> None:
+        await asyncio.sleep(10)
+        vc = self.voice_client(guild_id)
+        if vc is None:
+            return
+        st = self.dave_state(vc)
+        humans = [m.display_name for m in vc.channel.members if not m.bot]
+        level = logging.INFO if (not st["version"] or st["can_encrypt"]) else logging.WARNING
+        log.log(level, "Voice encryption status 10s after joining %s (client=%s): %s; people in channel: %s",
+                vc.channel.name, type(vc).__name__, st, humans or "nobody")
 
     @staticmethod
     def _is_recv(vc) -> bool:
@@ -157,6 +169,12 @@ class VoiceManager:
     async def disable_listening(self, guild_id: int) -> None:
         await self.update_settings(guild_id, listening=False)
         self.stop_listening(guild_id)
+        vc = self.voice_client(guild_id)
+        if vc is not None and self._is_recv(vc):
+            # Reconnect with discord.py's standard client so speaking does not depend on the alpha receive library.
+            channel_id = vc.channel.id
+            await vc.disconnect(force=True)
+            await self.join(guild_id, channel_id)
 
     @staticmethod
     def dave_state(vc) -> dict:

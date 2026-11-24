@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import os
 import re
 from pathlib import Path
 
@@ -61,4 +62,9 @@ def setup_logging(log_dir: Path, level: str = "INFO") -> None:
 
     logging.getLogger("discord").setLevel(logging.INFO)
     logging.getLogger("discord.gateway").setLevel(logging.WARNING)
+    logging.getLogger("discord.ext.voice_recv.reader").setLevel(logging.WARNING)  # very chatty RTCP notices
+    if os.getenv("VOICE_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
+        # Logs every DAVE (voice end-to-end encryption) handshake step.
+        for name in ("discord.gateway", "discord.voice_state", "discord.voice_client"):
+            logging.getLogger(name).setLevel(logging.DEBUG)
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
