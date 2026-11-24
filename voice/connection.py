@@ -12,7 +12,10 @@ from core import events as ev
 from core.events import EventBus
 from database.connection import Database
 
+from . import dave_patch
 from .listener import VOICE_RECV_AVAILABLE, DispatchSink, voice_recv
+
+dave_patch.apply()
 
 if TYPE_CHECKING:
     from .audio_processing import RadioSettings
