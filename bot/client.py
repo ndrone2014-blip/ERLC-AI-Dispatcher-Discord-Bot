@@ -53,6 +53,7 @@ class DispatchBot(commands.Bot):
     def __init__(self, settings: Settings):
         intents = discord.Intents.default()
         intents.members = True        # map voice speakers / roles to officers
+        intents.message_content = True
         intents.voice_states = True
         super().__init__(command_prefix=commands.when_mentioned, intents=intents, help_command=None)
         self.settings = settings
