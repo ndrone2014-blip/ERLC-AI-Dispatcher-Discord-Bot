@@ -39,7 +39,7 @@ DAVE_MAGIC = b"\xfa\xfa"
 OPUS_SILENCE = b"\xf8\xff\xfe"
 MIN_UTTERANCE_S = 0.5
 MAX_UTTERANCE_S = 15.0
-END_OF_SPEECH_S = 0.9
+END_OF_SPEECH_S = 0.6   # silence that ends a transmission (lower = faster replies)
 BYTES_PER_SECOND = 48000 * 2 * 2  # 48 kHz, stereo, s16
 
 
@@ -152,7 +152,7 @@ class DispatchSink(_SinkBase):  # type: ignore[misc]
 
     def _flush_loop(self) -> None:
         while self._running:
-            time.sleep(0.2)
+            time.sleep(0.1)
             now = time.monotonic()
             with self._lock:
                 for uid, buf in list(self._buffers.items()):

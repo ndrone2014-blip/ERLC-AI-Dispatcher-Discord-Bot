@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
@@ -199,23 +200,47 @@ class VoiceCommandProcessor:
         self._task: Optional[asyncio.Task] = None
         self._recent: dict[tuple, float] = {}
 
+    STALE_AFTER_S = 8.0     # a clip waiting longer than this is outdated - drop it instead of answering late
+
     def start(self) -> None:
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._worker(), name="voice-commands")
+            if self.stt.available():
+                asyncio.create_task(self.stt.warmup())   # load Whisper now, not on the first command
 
     def submit(self, guild_id: int, user_id: int, pcm: bytes) -> None:
         try:
-            self._queue.put_nowait((guild_id, user_id, pcm))
+            self._queue.put_nowait((guild_id, user_id, pcm, time.monotonic()))
         except asyncio.QueueFull:
             log.warning("Voice command queue full; dropping an utterance from %s", user_id)
 
     async def _worker(self) -> None:
         while True:
-            guild_id, user_id, pcm = await self._queue.get()
+            guild_id, user_id, pcm, received = await self._queue.get()
+            age = time.monotonic() - received
+            if age > self.STALE_AFTER_S:
+                log.debug("Dropping %.1fs-old voice clip from %s (backlog)", age, user_id)
+                continue
             try:
                 await self._handle(guild_id, user_id, pcm)
             except Exception:
                 log.exception("Voice command failed")
+
+    async def _transcribe(self, audio, statuses, require_wake: bool):
+        """Cheap quick pass first; the accurate model only when needed. Returns (text, woke, rest, intent)."""
+        seconds = len(audio) / 16000
+        if self.stt.has_quick_model:
+            quick = await self.stt.quick_transcribe(audio, max_seconds=None if seconds <= 6 else 2.5)
+            woke, rest = strip_wake_word(quick)
+            if require_wake and not woke and not re.search(r"\b(dis|this)\s?patch|dispatch", quick.lower()):
+                return quick, False, rest, None   # chatter: discarded after the cheap pass
+            if seconds <= 6 and woke:
+                intent = parse_rules(rest, statuses)
+                if intent is not None and intent.clarification is None and intent.name != "unclear":
+                    return quick, woke, rest, intent  # clear command - no need for the slower model
+        text = await self.stt.transcribe(audio)
+        woke, rest = strip_wake_word(text)
+        return text, woke, rest, parse_rules(rest, statuses) if woke or not require_wake else None
 
     async def _handle(self, guild_id: int, user_id: int, pcm: bytes) -> None:
         settings = await self.voice.settings(guild_id)
@@ -224,10 +249,12 @@ class VoiceCommandProcessor:
         audio = pcm48k_stereo_to_16k_mono(pcm)
         if rms(audio) < 0.004:
             return  # near-silence
-        text = await self.stt.transcribe(audio)
+        started = time.monotonic()
+        statuses = await self.core.units.status_codes(guild_id)
+        text, woke, rest, rule_intent = await self._transcribe(audio, statuses, settings["require_wake_word"])
+        stt_seconds = time.monotonic() - started
         if not text or len(text) < 3:
             return
-        woke, rest = strip_wake_word(text)
         if settings["require_wake_word"] and not woke:
             return
         member = self.member_lookup(guild_id, user_id)
@@ -245,8 +272,7 @@ class VoiceCommandProcessor:
             return  # same transmission picked up twice
         self._recent[key] = now
         speaker = officer["callsign"] if officer and officer.get("callsign") else member.display_name
-        statuses = await self.core.units.status_codes(guild_id)
-        intent = parse_rules(rest, statuses)
+        intent = rule_intent
         if intent is None and self.core.ai is not None:
             ctx = self.memory.get(guild_id, user_id)
             intent = await parse_with_ai(self.core.ai, guild_id, rest, statuses, ctx,
@@ -259,8 +285,8 @@ class VoiceCommandProcessor:
             reply = "Unidentified station, state your callsign. Register your unit with slash unit register."
         else:
             reply = await execute_intent(self.core, guild_id, officer, intent, user_id, self.memory)
-        log.info("Voice command from %s: heard %r -> intent %s %s (%s) -> reply %r", speaker, text, intent.name,
-                 intent.args, intent.source, reply)
+        log.info("Voice command from %s: heard %r -> intent %s %s (%s) -> reply %r [speech-to-text %.1fs, total %.1fs]",
+                 speaker, text, intent.name, intent.args, intent.source, reply, stt_seconds, time.monotonic() - started)
         self.memory.add(guild_id, user_id, speaker, rest)
         self.memory.add(guild_id, user_id, "Dispatch", reply)
         await self._reply(guild_id, speaker, text, reply)

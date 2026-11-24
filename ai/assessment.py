@@ -181,7 +181,7 @@ def escalation_text(inc: dict, change: dict) -> str:
     prio = PRIORITY_LABEL.get(inc.get("ai_priority") or "", "updated")
     deps = loads(inc.get("recommended_departments"), []) or []
     text = (f"Dispatch update on incident {inc['number']}, {inc.get('location') or 'location unavailable'}. "
-            f"Reassessed as {prio} priority based on new information. ")
+            f"Assessment updated to {prio} priority. ")
     if inc.get("recommended_units"):
         text += f"Now recommending {inc['recommended_units']} units"
         text += (", with " + ", ".join(deps) + ". " if deps else ". ")

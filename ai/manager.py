@@ -24,6 +24,9 @@ from .providers.base import AIProvider, AIResponse, ProviderError
 
 log = logging.getLogger(__name__)
 
+# Per-purpose time limits (seconds). Voice and dispatch must never wait long for an AI that is slow or down.
+PURPOSE_TIMEOUTS = {"intent": 4.0, "question": 6.0, "assessment": 6.0, "announcement": 3.0, "report_summary": 20.0, "test": 15.0}
+
 COOLDOWNS = {"quota": 60.0, "auth": 3600.0, "unavailable": 60.0, "timeout": 20.0, "bad_response": 0.0, "error": 15.0}
 
 
@@ -125,7 +128,9 @@ class AIManager:
 
     # ------------------------------------------------------------------ generation
     async def generate(self, guild_id: Optional[int], *, purpose: str, system: str, prompt: str, json_mode: bool = False,
-                       max_tokens: int = 600, temperature: float = 0.3, only: Optional[str] = None) -> AIResponse:
+                       max_tokens: int = 600, temperature: float = 0.3, only: Optional[str] = None,
+                       timeout: Optional[float] = None) -> AIResponse:
+        timeout = timeout or PURPOSE_TIMEOUTS.get(purpose, 10.0)
         candidates: list[tuple[AIProvider, Optional[str], dict]] = []
         if guild_id is not None:
             for row in await self.guild_providers(guild_id):
@@ -152,7 +157,7 @@ class AIManager:
             try:
                 try:
                     resp = await provider.generate(system=system, prompt=prompt, model=model, json_mode=json_mode,
-                                                   max_tokens=max_tokens, temperature=temperature)
+                                                   max_tokens=max_tokens, temperature=temperature, timeout=timeout)
                 except ProviderError as e:
                     if e.kind != "model":
                         raise
@@ -167,7 +172,7 @@ class AIManager:
                     provider.default_model = replacement
                     model = replacement
                     resp = await provider.generate(system=system, prompt=prompt, model=model, json_mode=json_mode,
-                                                   max_tokens=max_tokens, temperature=temperature)
+                                                   max_tokens=max_tokens, temperature=temperature, timeout=timeout)
             except ProviderError as e:
                 await self._record_failure(guild_id, provider.name, model or provider.default_model, purpose, e)
                 errors.append(f"{provider.name}: {e}")

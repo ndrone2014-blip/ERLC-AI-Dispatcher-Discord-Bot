@@ -20,7 +20,7 @@ class RadioSettings:
     close_beep: bool = True
     static: bool = True
     volume: float = 1.0       # 0.2 - 2.0
-    pause_ms: int = 140
+    pause_ms: int = 90
 
 
 def _tone(freq: float, ms: int, sr: int, amp: float = 0.25) -> np.ndarray:
@@ -70,14 +70,14 @@ def write_wav_mono(path: Path, data: np.ndarray, sr: int) -> None:
 
 def build_transmission(speech_wav: Path, out_wav: Path, settings: RadioSettings, seed: int = 0) -> Path:
     speech, sr = read_wav_mono(speech_wav)
-    parts = [_silence(60, sr)]
+    parts = [_silence(30, sr)]
     if settings.open_beep:
         parts += [open_beep(sr), _silence(settings.pause_ms, sr)]
     parts.append(speech)
-    parts.append(_silence(settings.pause_ms + 40, sr))
+    parts.append(_silence(settings.pause_ms, sr))
     if settings.close_beep:
         parts.append(close_beep(sr))
-    parts.append(_silence(80, sr))
+    parts.append(_silence(40, sr))
     audio = np.concatenate(parts)
     if settings.radio_effect and settings.static:
         rng = np.random.default_rng(seed)

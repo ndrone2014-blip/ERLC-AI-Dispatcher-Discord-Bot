@@ -35,8 +35,8 @@ DEFAULT_SETTINGS = {
     "repeat_interval_s": 120,
     "repeat_max": 2,
     "repeat_min_priority": "medium",
-    "ai_announcement_wording": True,
-    "assessment_timeout_s": 8,
+    "ai_announcement_wording": False,   # off = fastest; AI wording adds an extra AI round-trip before speaking
+    "assessment_timeout_s": 6,
     "stale_call_s": 900,
     "allow_unverified_reports": True,
 }
@@ -75,7 +75,7 @@ class DispatchCore:
         await self.bus.publish(ev.CONFIG_CHANGED, guild_id, what="dispatch_settings")
 
     # ------------------------------------------------------------------ assessment
-    async def _assess(self, inc: dict) -> dict:
+    async def _assess(self, inc: dict, use_ai: bool = True) -> dict:
         guild_id = inc["guild_id"]
         departments = await self.units.departments(guild_id)
         assigned = await self.incidents.assigned_units(inc["id"])
@@ -84,7 +84,7 @@ class DispatchCore:
         timeout = float(await self.setting(guild_id, "assessment_timeout_s"))
         try:
             return await asyncio.wait_for(
-                assess_incident(self.ai, guild_id, inc, departments=departments, assigned_units=assigned,
+                assess_incident(self.ai if use_ai else None, guild_id, inc, departments=departments, assigned_units=assigned,
                                 availability=availability, notes=notes), timeout=timeout)
         except asyncio.TimeoutError:
             log.warning("AI assessment for incident #%s timed out after %ss; using rule-based assessment", inc["number"], timeout)
@@ -94,14 +94,15 @@ class DispatchCore:
     async def handle_new_incident(self, incident_id: int, *, speak: bool = True, delayed: bool = False,
                                   skip_reason: str = "Backlog call found on first sync; recorded and shown without voice announcement") -> dict:
         inc = await self.incidents.get(incident_id)
-        assessment = await self._assess(inc)
+        # 1) Instant rule-based assessment so the call is announced without waiting on an AI service.
+        assessment = await self._assess(inc, use_ai=False)
         threshold = await self.setting(inc["guild_id"], "priority_approval_threshold")
         _, inc = await self.incidents.apply_assessment(incident_id, assessment, approval_threshold=threshold, reason="initial assessment")
         if speak:
             use_ai = bool(await self.setting(inc["guild_id"], "ai_announcement_wording"))
             try:
                 text, wording_source = await asyncio.wait_for(
-                    announcement_for_new_call(self.ai, inc["guild_id"], inc, use_ai=use_ai), timeout=5)
+                    announcement_for_new_call(self.ai, inc["guild_id"], inc, use_ai=use_ai), timeout=3.5)
             except asyncio.TimeoutError:
                 from ai.assessment import template_new_call
                 text, wording_source = template_new_call(inc), "template"
@@ -112,8 +113,17 @@ class DispatchCore:
             await self.incidents.add_history(inc, "announcement_queued", None, wording=wording_source)
         else:
             await self.incidents.add_history(inc, "announcement_skipped", None, reason=skip_reason)
+        # 2) AI assessment in the background; a significant difference is announced as an update.
+        if self.ai is not None:
+            asyncio.create_task(self._ai_followup(incident_id))
         await self.bus.publish(ev.INCIDENT_UPDATED, inc["guild_id"], incident_id=incident_id, changes=["assessment"])
         return inc
+
+    async def _ai_followup(self, incident_id: int) -> None:
+        try:
+            await self.reassess(incident_id, reason="AI assessment")
+        except Exception:
+            log.exception("Background AI assessment failed for incident %s", incident_id)
 
     async def reassess(self, incident_id: int, reason: str = "") -> Optional[dict]:
         lock = self._reassess_locks.setdefault(incident_id, asyncio.Lock())
