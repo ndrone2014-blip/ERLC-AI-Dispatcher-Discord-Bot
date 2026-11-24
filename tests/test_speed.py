@@ -107,6 +107,51 @@ async def test_unclear_quick_pass_falls_back_to_accurate_model(core):
     assert stt.full_calls == 1 and intent.name == "self_initiated"
 
 
+@pytest.mark.parametrize("quick", [
+    "Dispatch, show me available", "this patch show me available", "Dispatched, attach me to the call",
+    "Despatch, traffic stop", "The spatch, I'm on scene", "Dispatcher, radio check", "dispatch's show me 10-8",
+    "Disbatch, show me available", "Just patch attach me",
+])
+def test_lenient_wake_on_fast_transcript(quick):
+    from ai.conversation import maybe_wake_word
+    assert maybe_wake_word(quick)
+
+
+@pytest.mark.parametrize("chatter", [
+    "so anyway we were driving down the road", "the district attorney said no", "this is crazy man",
+    "look at the display", "yeah I'll be there in a minute", "",
+])
+def test_chatter_not_mistaken_for_wake(chatter):
+    from ai.conversation import maybe_wake_word, strip_wake_word
+    assert not maybe_wake_word(chatter)
+    assert not strip_wake_word(chatter)[0]
+
+
+@pytest.mark.parametrize("heard,rest", [
+    ("Dispatched, show me available.", "show me available"),
+    ("Disbatch show me on a traffic stop", "show me on a traffic stop"),
+    ("Despatch, I'm on scene", "i'm on scene"),
+])
+def test_fuzzy_wake_on_accurate_transcript(heard, rest):
+    from ai.conversation import strip_wake_word
+    woke, r = strip_wake_word(heard)
+    assert woke and r == rest
+
+
+def test_radio_check_is_built_in():
+    from ai.conversation import parse_rules, strip_wake_word
+    for heard in ("Dispatch, are you there?", "Dispatch, radio check", "Dispatch, do you copy?"):
+        assert parse_rules(strip_wake_word(heard)[1], CODES).name == "radio_check"
+
+
+@pytest.mark.asyncio
+async def test_possible_wake_on_fast_pass_uses_accurate_model(core):
+    stt = FakeSTT("Just patch attach me to the coal", "Dispatch, attach me to the call.")
+    p = processor(core, stt)
+    text, woke, rest, intent = await p._transcribe(np.zeros(16000 * 2, dtype=np.float32), CODES, True)
+    assert stt.full_calls == 1 and woke and intent.name == "attach"
+
+
 @pytest.mark.asyncio
 async def test_stale_clips_are_dropped(core):
     handled = []

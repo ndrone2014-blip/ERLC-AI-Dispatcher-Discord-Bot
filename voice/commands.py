@@ -11,7 +11,8 @@ import re
 import time
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from ai.conversation import ConversationMemory, Intent, answer_question, parse_rules, parse_with_ai, strip_wake_word
+from ai.conversation import (ConversationMemory, Intent, answer_question, maybe_wake_word, parse_rules, parse_with_ai,
+                             strip_wake_word)
 from ai.manager import AIUnavailable
 from database.models import PRIORITY_LABEL, loads
 from dispatch.incidents import IncidentError
@@ -136,6 +137,8 @@ async def execute_intent(core: "DispatchCore", guild_id: int, officer: Optional[
             await core.incidents.add_note(inc["id"], actor_id, text, author=callsign or "")
             asyncio.create_task(core.reassess(inc["id"], reason=f"Update from {callsign}"))
             return f"{callsign}, copy update on incident {inc['number']}. Dispatch is reassessing."
+        if name == "radio_check":
+            return f"{callsign + ', ' if callsign else ''}dispatch copies loud and clear, go ahead."
         if name == "query_highest":
             inc = await core.incidents.highest_priority(guild_id)
             if inc is None:
@@ -232,8 +235,9 @@ class VoiceCommandProcessor:
         if self.stt.has_quick_model:
             quick = await self.stt.quick_transcribe(audio, max_seconds=None if seconds <= 6 else 2.5)
             woke, rest = strip_wake_word(quick)
-            if require_wake and not woke and not re.search(r"\b(dis|this)\s?patch|dispatch", quick.lower()):
-                return quick, False, rest, None   # chatter: discarded after the cheap pass
+            if require_wake and not woke and not maybe_wake_word(quick):
+                log.debug("Ignored (no wake word): %r", quick[:80])
+                return quick, False, rest, None   # clearly not for dispatch: discarded after the cheap pass
             if seconds <= 6 and woke:
                 intent = parse_rules(rest, statuses)
                 if intent is not None and intent.clarification is None and intent.name != "unclear":

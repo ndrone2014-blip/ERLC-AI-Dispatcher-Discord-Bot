@@ -152,11 +152,35 @@ def normalize_speech(text: str) -> str:
     return t
 
 
+def maybe_wake_word(text: str) -> bool:
+    """Lenient check used on the fast (less accurate) transcript: could the speaker have said "Dispatch"
+    near the start? False only when the clip is clearly not addressed to dispatch."""
+    import difflib
+    words = re.findall(r"[a-z']+", (text or "").lower())[:5]
+    if not words:
+        return False
+    candidates = set(words) | {a + b for a, b in zip(words, words[1:])}
+    for c in candidates:
+        if "patch" in c or c in {"central", "control", "dispatcher"}:
+            return True
+        if len(c) >= 5 and difflib.SequenceMatcher(None, c, "dispatch").ratio() >= 0.7:
+            return True
+    return False
+
+
 def strip_wake_word(text: str) -> tuple[bool, str]:
     t = normalize_speech(text)
     m = re.match(r"^\W*(?:hey |ok |okay )?(%s)\b[\s,.:!-]*(.*)$" % "|".join(WAKE_WORDS), t)
     if m:
         return True, m.group(2).strip()
+    # Fuzzy: a close mishearing of "dispatch" as the first word (or first two words joined).
+    import difflib
+    m = re.match(r"^\W*(?:hey |ok |okay )?([a-z']+)(?:[\s,.:!-]+([a-z']+))?[\s,.:!-]*(.*)$", t)
+    if m:
+        first, second, rest = m.group(1), m.group(2) or "", m.group(3)
+        for cand, remainder in ((first, (second + " " + rest).strip()), (first + second, rest)):
+            if len(cand) >= 6 and difflib.SequenceMatcher(None, cand, "dispatch").ratio() >= 0.75:
+                return True, remainder.strip()
     return False, t
 
 
@@ -172,6 +196,10 @@ def parse_rules(text: str, status_codes: list[dict]) -> Optional[Intent]:
     if not t:
         return Intent("unclear", clarification="I didn't catch that.")
     num = _incident_number(t)
+
+    # Radio check
+    if re.fullmatch(r"(are you there|you there|radio check|do you copy|how copy|you copy|test(ing)?|check)\W*", t):
+        return Intent("radio_check")
 
     # Questions first, so "show me available units" is not read as "mark me available".
     if re.search(r"\b(available|10-8) (units|officers)\b", t) or re.search(r"\bwho('?s| is) available\b", t):

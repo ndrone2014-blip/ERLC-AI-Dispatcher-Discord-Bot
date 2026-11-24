@@ -65,6 +65,9 @@ def setup_logging(log_dir: Path, level: str = "INFO") -> None:
     logging.getLogger("discord.ext.voice_recv.reader").setLevel(logging.WARNING)  # very chatty RTCP notices
     if os.getenv("VOICE_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
         # Logs every DAVE (voice end-to-end encryption) handshake step.
-        for name in ("discord.gateway", "discord.voice_state", "discord.voice_client"):
+        for name in ("discord.gateway", "discord.voice_state", "discord.voice_client", "voice.commands"):
             logging.getLogger(name).setLevel(logging.DEBUG)
+    if os.getenv("VOICE_LOG_TRANSCRIPTS", "").strip().lower() in {"1", "true", "yes", "on"}:
+        # Also log clips that were ignored because no wake word was heard (for tuning recognition). Local log only.
+        logging.getLogger("voice.commands").setLevel(logging.DEBUG)
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
