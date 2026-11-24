@@ -49,14 +49,47 @@ class SystemCog(commands.Cog):
     async def voice_listen(self, interaction: discord.Interaction, enabled: bool):
         if not await require(interaction, "voice.control"):
             return
-        await self.bot.voice.update_settings(interaction.guild_id, listening=enabled)
         if enabled:
             if not self.bot.stt.available():
                 return await reply(interaction, f"⚠️ Speech recognition unavailable: {self.bot.stt.last_error}", error=True)
-            ok, msg = self.bot.voice.start_listening(interaction.guild_id)
-            return await reply(interaction, ("👂 " if ok else "⚠️ ") + msg)
-        self.bot.voice.stop_listening(interaction.guild_id)
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            ok, msg = await self.bot.voice.enable_listening(interaction.guild_id)
+            return await interaction.followup.send(("👂 " if ok else "⚠️ ") + msg, ephemeral=True)
+        await self.bot.voice.disable_listening(interaction.guild_id)
         await reply(interaction, "🙉 Listening off.")
+
+    @voice.command(name="diagnose", description="Show why the dispatcher might be silent")
+    async def voice_diagnose(self, interaction: discord.Interaction):
+        if not await require(interaction, "voice.control"):
+            return
+        import shutil
+        import subprocess
+        bot = self.bot
+        d = bot.voice.diagnostics(interaction.guild_id)
+        s = await bot.voice.settings(interaction.guild_id)
+        lines = [f"**Connected:** {d['connected']}" + (f" to `{d['channel']}` with `{d['client']}`" if d["connected"] else "")]
+        if d["connected"]:
+            dave = d["dave"]
+            lines.append(f"**Listeners in channel:** {d['listeners']}")
+            lines.append(f"**DAVE encryption:** version {dave['version']} · session {dave['session']} · ready {dave['ready']} · "
+                         f"can encrypt {dave['can_encrypt']}")
+        lines.append(f"**Speech muted:** {s['muted']} · **Volume:** {s['volume']}")
+        ff = bot.settings.ffmpeg_path
+        resolved = shutil.which(ff) or ff
+        try:
+            out = subprocess.run([resolved, "-version"], capture_output=True, text=True, timeout=10).stdout.splitlines()[0]
+        except Exception as e:
+            out = f"NOT WORKING ({e})"
+        lines.append(f"**FFmpeg:** `{resolved}` — {out[:80]}")
+        voices = bot.tts.list_voices()
+        lines.append(f"**TTS voices:** {', '.join(voices) or 'none'}" + ("" if any(v != 'windows-sapi' for v in voices)
+                                                                       else " (Piper voice missing → Windows voice used)"))
+        if bot.tts.last_error:
+            lines.append(f"**Last TTS error:** {bot.tts.last_error[:200]}")
+        queued = await bot.core.announcements.pending_count(interaction.guild_id)
+        lines.append(f"**Queued announcements:** {queued}")
+        lines.append(f"**Last playback:** {d['last_playback'] or 'none yet'}")
+        await reply(interaction, "\n".join(lines))
 
     @voice.command(name="mute", description="Mute or unmute dispatcher speech (listening is unaffected)")
     async def voice_mute(self, interaction: discord.Interaction, muted: bool):

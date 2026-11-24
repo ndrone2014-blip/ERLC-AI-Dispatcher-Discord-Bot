@@ -54,7 +54,7 @@ class Settings:
 
     # AI providers (keys come from .env; behaviour is configured per guild in Discord)
     gemini_api_key: str = field(default_factory=lambda: _str("GEMINI_API_KEY"))
-    gemini_model: str = field(default_factory=lambda: _str("GEMINI_MODEL", "gemini-2.5-flash"))
+    gemini_model: str = field(default_factory=lambda: _str("GEMINI_MODEL", "gemini-3.8-flash"))
     gemini_daily_request_limit: int = field(default_factory=lambda: _int("GEMINI_DAILY_REQUEST_LIMIT", 200))
     ollama_base_url: str = field(default_factory=lambda: _str("OLLAMA_BASE_URL"))  # e.g. http://localhost:11434
     ollama_model: str = field(default_factory=lambda: _str("OLLAMA_MODEL", "llama3.1"))

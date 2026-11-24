@@ -36,6 +36,7 @@ async def bot(tmp_path, monkeypatch):
     yield b
     for t in b._tasks:
         t.cancel()
+    b.loop_monitor.stop()
     if b.voice._watchdog:
         b.voice._watchdog.cancel()
     if b.voice_commands._task:

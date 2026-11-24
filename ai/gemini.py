@@ -38,7 +38,7 @@ class GeminiProvider(AIProvider):
         if json_mode:
             gen_cfg["responseMimeType"] = "application/json"
         if model.startswith("gemini-2.5-flash"):
-            # Disable "thinking" on Flash models: faster replies, far fewer free-tier tokens.
+            # Disable "thinking" on 2.5 Flash: faster replies, far fewer free-tier tokens.
             gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
         body = {
             "systemInstruction": {"parts": [{"text": system}]},
@@ -103,6 +103,9 @@ def _error_from(status: int, data) -> ProviderError:
             m = re.match(r"([\d.]+)s", str(delay))
             if m:
                 retry = float(m.group(1))
+    low = msg.lower()
+    if status == 404 or err.get("status") == "NOT_FOUND" or "no longer available" in low or "is not found for api version" in low:
+        return ProviderError(msg[:300], kind="model", status=status)
     if status == 429 or err.get("status") == "RESOURCE_EXHAUSTED":
         return ProviderError(msg[:300], kind="quota", retry_after=retry or 60.0, status=status)
     if status in (401, 403) or err.get("status") in {"PERMISSION_DENIED", "UNAUTHENTICATED"}:

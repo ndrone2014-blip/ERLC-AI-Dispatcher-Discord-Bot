@@ -150,8 +150,24 @@ class AIManager:
                 continue
             self._recent[provider.name].append(time.monotonic())
             try:
-                resp = await provider.generate(system=system, prompt=prompt, model=model, json_mode=json_mode,
-                                               max_tokens=max_tokens, temperature=temperature)
+                try:
+                    resp = await provider.generate(system=system, prompt=prompt, model=model, json_mode=json_mode,
+                                                   max_tokens=max_tokens, temperature=temperature)
+                except ProviderError as e:
+                    if e.kind != "model":
+                        raise
+                    # The configured model was retired or renamed: switch to an available one and retry once.
+                    replacement = await self._replacement_model(provider, model or provider.default_model)
+                    if not replacement:
+                        raise
+                    log.warning("AI model %s on %s unavailable (%s); switching to %s", model or provider.default_model,
+                                provider.name, e.message[:120], replacement)
+                    if guild_id is not None:
+                        await self.set_model(guild_id, provider.name, replacement)
+                    provider.default_model = replacement
+                    model = replacement
+                    resp = await provider.generate(system=system, prompt=prompt, model=model, json_mode=json_mode,
+                                                   max_tokens=max_tokens, temperature=temperature)
             except ProviderError as e:
                 await self._record_failure(guild_id, provider.name, model or provider.default_model, purpose, e)
                 errors.append(f"{provider.name}: {e}")
@@ -159,6 +175,24 @@ class AIManager:
             await self._record_success(guild_id, resp, purpose)
             return resp
         raise AIUnavailable("; ".join(errors) or "No AI provider is configured")
+
+    @staticmethod
+    async def _replacement_model(provider: AIProvider, current: str) -> Optional[str]:
+        try:
+            models = [m for m in await provider.list_models() if m != current]
+        except ProviderError:
+            return None
+        if not models:
+            return None
+
+        def score(name: str) -> tuple:
+            import re
+            n = name.lower()
+            version = tuple(int(x) for x in re.findall(r"\d+", n)[:2]) or (0,)
+            stable = "preview" not in n and "exp" not in n
+            return ("flash" in n and "lite" not in n, stable, "latest" not in n, version)
+
+        return max(models, key=score)
 
     async def test_provider(self, guild_id: int, provider: str) -> tuple[bool, str]:
         try:

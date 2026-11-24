@@ -44,6 +44,7 @@ class GuildVoice:
     sink: Optional[DispatchSink] = None
     reconnect_failures: int = 0
     last_error: Optional[str] = None
+    last_playback: Optional[str] = None
 
 
 class VoiceManager:
@@ -104,17 +105,24 @@ class VoiceManager:
             channel = guild.get_channel(channel_id) if guild else None
             if not isinstance(channel, (discord.VoiceChannel, discord.StageChannel)):
                 raise ValueError("That voice channel no longer exists.")
+            settings = await self.settings(guild_id)
+            # The receive-capable client (alpha library) is only used when listening is on;
+            # speaking always works with discord.py's own, fully supported VoiceClient.
+            want_recv = bool(settings["listening"]) and VOICE_RECV_AVAILABLE
             vc = self.voice_client(guild_id)
+            if vc and want_recv != self._is_recv(vc):
+                await vc.disconnect(force=True)
+                vc = None
             if vc and vc.channel.id == channel_id:
                 return vc
             if vc:
                 await vc.move_to(channel)
             else:
-                cls = voice_recv.VoiceRecvClient if VOICE_RECV_AVAILABLE else discord.VoiceClient
+                cls = voice_recv.VoiceRecvClient if want_recv else discord.VoiceClient
+                log.info("Connecting to voice channel %s with %s", channel.name, cls.__name__)
                 vc = await channel.connect(cls=cls, self_deaf=False, timeout=20, reconnect=True)
             await self.update_settings(guild_id, channel_id=channel_id, autojoin=True)
             self.gs(guild_id).reconnect_failures = 0
-            settings = await self.settings(guild_id)
             if settings["listening"]:
                 self.start_listening(guild_id)
             await self.bus.publish(ev.VOICE_STATUS, guild_id)
@@ -128,6 +136,49 @@ class VoiceManager:
         if vc:
             await vc.disconnect(force=True)
         await self.bus.publish(ev.VOICE_STATUS, guild_id)
+
+    @staticmethod
+    def _is_recv(vc) -> bool:
+        return VOICE_RECV_AVAILABLE and isinstance(vc, voice_recv.VoiceRecvClient)
+
+    async def enable_listening(self, guild_id: int) -> tuple[bool, str]:
+        """Turn listening on, reconnecting with the receive-capable client if needed."""
+        await self.update_settings(guild_id, listening=True)
+        vc = self.voice_client(guild_id)
+        if vc is not None and not self._is_recv(vc) and VOICE_RECV_AVAILABLE:
+            channel_id = vc.channel.id
+            await vc.disconnect(force=True)
+            await self.join(guild_id, channel_id)  # join() starts listening
+            vc = self.voice_client(guild_id)
+            if vc is not None and hasattr(vc, "is_listening") and vc.is_listening():
+                return True, "Reconnected with voice receive and listening for officer transmissions."
+        return self.start_listening(guild_id)
+
+    async def disable_listening(self, guild_id: int) -> None:
+        await self.update_settings(guild_id, listening=False)
+        self.stop_listening(guild_id)
+
+    @staticmethod
+    def dave_state(vc) -> dict:
+        conn = getattr(vc, "_connection", None)
+        version = getattr(conn, "dave_protocol_version", 0) if conn else 0
+        sess = getattr(conn, "dave_session", None) if conn else None
+        ready = bool(sess is not None and getattr(sess, "ready", False))
+        can = bool(getattr(conn, "can_encrypt", False)) if conn else False
+        return {"version": version, "session": sess is not None, "ready": ready, "can_encrypt": can}
+
+    def diagnostics(self, guild_id: int) -> dict:
+        vc = self.voice_client(guild_id)
+        g = self.gs(guild_id)
+        info = {"connected": vc is not None, "client": type(vc).__name__ if vc else None,
+                "channel": vc.channel.name if vc else None, "playing": bool(vc and vc.is_playing()),
+                "last_error": g.last_error, "last_playback": g.last_playback}
+        if vc:
+            info["dave"] = self.dave_state(vc)
+            info["mode"] = getattr(vc, "mode", None)
+            members = [m for m in vc.channel.members if not m.bot]
+            info["listeners"] = len(members)
+        return info
 
     # ------------------------------------------------------------------ listening
     def listening_supported(self) -> tuple[bool, str]:
@@ -143,7 +194,7 @@ class VoiceManager:
         if vc is None:
             return False, "Not connected to voice."
         if not hasattr(vc, "listen"):
-            return False, "Connected with a client that cannot receive audio. Rejoin the channel."
+            return False, "Connected without voice receive. Press Start Listening again to reconnect with receive enabled."
         if vc.is_listening():
             return True, "Already listening."
         g = self.gs(guild_id)
@@ -181,6 +232,20 @@ class VoiceManager:
         vc = self.voice_client(guild_id)
         if vc is None:
             raise ConnectionError("Not connected to voice")
+        g = self.gs(guild_id)
+        # Discord voice is end-to-end encrypted (DAVE). Audio sent before the DAVE session is
+        # ready is dropped by listeners' clients, so wait for it instead of playing into silence.
+        state = self.dave_state(vc)
+        waited = 0.0
+        while state["version"] and not state["can_encrypt"] and waited < 10:
+            await asyncio.sleep(0.25)
+            waited += 0.25
+            state = self.dave_state(vc)
+        if state["version"] and not state["can_encrypt"]:
+            g.last_playback = f"DAVE encryption not ready after 10s (session={state['session']}, ready={state['ready']})"
+            raise ConnectionError("Voice encryption (DAVE) is not ready yet; the announcement will be retried")
+        log.info("Playing audio in guild %s (client=%s, dave_version=%s, can_encrypt=%s, waited=%.1fs)",
+                 guild_id, type(vc).__name__, state["version"], state["can_encrypt"], waited)
         done = asyncio.get_running_loop().create_future()
 
         def after(err):
@@ -192,8 +257,13 @@ class VoiceManager:
         if vc.is_playing():
             vc.stop()
         vc.play(source, after=after)
+        started = asyncio.get_running_loop().time()
         try:
             await asyncio.wait_for(done, timeout=timeout)
+            g.last_playback = f"OK: played {asyncio.get_running_loop().time() - started:.1f}s of audio"
+        except Exception as e:
+            g.last_playback = f"Playback error: {e}"
+            raise
         finally:
             if vc.is_playing():
                 vc.stop()

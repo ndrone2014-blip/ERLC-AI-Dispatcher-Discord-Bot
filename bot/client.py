@@ -146,6 +146,9 @@ class DispatchBot(commands.Bot):
             self.webhook_server = WebhookServer(s.webhook_host, s.webhook_port, self.sync.resolve_webhook_token, self.sync.on_webhook)
             await self.webhook_server.start()
 
+        from core.loop_monitor import LoopMonitor
+        self.loop_monitor = LoopMonitor()
+        self.loop_monitor.start()
         self.voice.start_watchdog()
         self.voice_commands.start()
         self._tasks += [asyncio.create_task(self._repeat_loop(), name="repeat-announcements"),
@@ -171,6 +174,8 @@ class DispatchBot(commands.Bot):
         log.info("Shutting down gracefully…")
         for t in self._tasks:
             t.cancel()
+        if getattr(self, "loop_monitor", None):
+            self.loop_monitor.stop()
         try:
             if self.sync:
                 await self.sync.stop()

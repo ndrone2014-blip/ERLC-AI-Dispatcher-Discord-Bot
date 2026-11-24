@@ -46,6 +46,13 @@ async def build(bot: "DispatchBot", guild_id: int):
                     value=(f"packets {st.packets} · DAVE decrypted {st.dave_decrypted} · plain {st.passthrough} · "
                            f"decrypt failures {st.decrypt_failures} · utterances {st.utterances}"
                            + (f"\nLast error: {truncate(st.last_error, 120)}" if st.last_error else "")), inline=False)
+    if vc:
+        d = bot.voice.dave_state(vc)
+        e.add_field(name="Voice encryption (DAVE)",
+                    value=("Not used" if not d["version"] else ("🟢 Ready" if d["can_encrypt"] else "🟡 Negotiating — audio waits until ready")),
+                    inline=True)
+    if g.last_playback:
+        e.add_field(name="Last playback", value=truncate(g.last_playback, 200), inline=False)
     if g.last_error and status == "disconnected":
         e.add_field(name="Last voice error", value=truncate(g.last_error, 200), inline=False)
     e.set_footer(text=FOOTER)
@@ -104,17 +111,17 @@ class VoiceView(discord.ui.View):
         bot = bot_of(interaction)
         if not bot.stt.available():
             return await reply(interaction, f"⚠️ Speech recognition unavailable: {bot.stt.last_error}", error=True)
-        await bot.voice.update_settings(interaction.guild_id, listening=True)
-        ok, msg = bot.voice.start_listening(interaction.guild_id)
-        await reply(interaction, ("👂 " if ok else "⚠️ ") + msg + ("" if ok else " Listening will start automatically once connected."))
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        ok, msg = await bot.voice.enable_listening(interaction.guild_id)
+        await interaction.followup.send(("👂 " if ok else "⚠️ ") + msg + ("" if ok else " Listening will start automatically once connected."),
+                                        ephemeral=True)
 
     @discord.ui.button(label="Stop Listening", emoji="🙉", style=discord.ButtonStyle.secondary, custom_id="cad:voice:unlisten", row=1)
     async def unlisten(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self._guard(interaction):
             return
         bot = bot_of(interaction)
-        await bot.voice.update_settings(interaction.guild_id, listening=False)
-        bot.voice.stop_listening(interaction.guild_id)
+        await bot.voice.disable_listening(interaction.guild_id)
         await reply(interaction, "🙉 Stopped listening. Dispatcher speech is unaffected.")
 
     @discord.ui.button(label="Mute / Unmute Speech", emoji="🔇", style=discord.ButtonStyle.secondary, custom_id="cad:voice:mute", row=2)

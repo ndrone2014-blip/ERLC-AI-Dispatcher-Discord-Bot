@@ -117,17 +117,26 @@ class TTSEngine:
                 voice.synthesize_wav(text, wav, syn_config=cfg)
 
     def _sapi(self, text: str, speed: float, out: Path) -> None:
-        import pyttsx3
-        with self._lock:
-            engine = pyttsx3.init()
-            try:
-                engine.setProperty("rate", int(175 * max(0.6, min(1.6, speed or 1.0))))
-                engine.save_to_file(text, str(out))
-                engine.runAndWait()
-            finally:
-                engine.stop()
+        # Windows COM/SAPI runs in a separate short-lived process so it can never stall the
+        # bot's event loop or Discord connection, and a hung voice engine can be killed.
+        import subprocess
+        import sys
+        text_file = out.with_suffix(".txt")
+        text_file.write_text(text, encoding="utf-8")
+        rate = int(175 * max(0.6, min(1.6, speed or 1.0)))
+        try:
+            proc = subprocess.run([sys.executable, "-c", _SAPI_SCRIPT, str(text_file), str(out), str(rate)],
+                                  capture_output=True, text=True, timeout=45,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except subprocess.TimeoutExpired:
+            raise TTSError("Windows voice timed out")
+        finally:
+            text_file.unlink(missing_ok=True)
+        if proc.returncode != 0:
+            raise TTSError(f"Windows voice failed: {(proc.stderr or proc.stdout).strip()[-200:]}")
         if not out.exists() or out.stat().st_size < 100:
             raise TTSError("SAPI produced no audio")
+
 
     def cleanup(self, *paths: Path) -> None:
         for p in paths:
@@ -135,3 +144,14 @@ class TTSEngine:
                 p.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+_SAPI_SCRIPT = r"""
+import sys, pyttsx3
+text = open(sys.argv[1], encoding="utf-8").read()
+engine = pyttsx3.init()
+engine.setProperty("rate", int(sys.argv[3]))
+engine.save_to_file(text, sys.argv[2])
+engine.runAndWait()
+engine.stop()
+"""
