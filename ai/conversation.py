@@ -39,7 +39,7 @@ NUMBER_WORDS = {
     "twenty-three": "23", "twenty three": "23",
 }
 
-WAKE_WORDS = ("dispatch", "dispatcher", "central", "control")
+WAKE_WORDS = ("dispatcher", "dispatch", "central", "control")
 
 
 @dataclass
@@ -51,9 +51,25 @@ class Intent:
     clarification: Optional[str] = None
 
 
+# Common speech-to-text mishearings of radio words (Whisper output varies with accents/radio quality).
+MISHEARD = [
+    (r"\b(?:this|the|his|dis|da)[\s-]?patch(?:es|ed)?\b", "dispatch"),
+    (r"\bdispatch(?:'s|es)\b", "dispatch"),
+    (r"\b(?:attachee|attachy|attached|attaching|atach|a tach|a-tach|attatch)\b", "attach"),
+    (r"\b(?:attack|a touch|touch)(?= (?:me|us|my unit)\b)", "attach"),
+    (r"\b(?:avable|avaliable|availible|avalible|availabe|avail|available's|avialable)\b", "available"),
+    (r"\bten[\s-]?ate\b", "10-8"),
+    (r"\bin route\b", "en route"),
+    (r"\bback-up\b", "backup"),
+]
+
+
 def normalize_speech(text: str) -> str:
     t = (text or "").lower().strip()
     t = re.sub(r"[‐-―]", "-", t)
+    t = re.sub(r"[.!?]+$", "", t)
+    for pattern, repl in MISHEARD:
+        t = re.sub(pattern, repl, t)
     t = re.sub(r"\bten[\s-]+(twenty[\s-]+three|twenty|fifteen|eight|seven|six|four|five|nine|one|two|three)\b",
                lambda m: "10-" + NUMBER_WORDS.get(m.group(1).replace(" ", "-"), NUMBER_WORDS.get(m.group(1), m.group(1))), t)
     t = re.sub(r"\b10[\s.]+(\d{1,2})\b", r"10-\1", t)
@@ -112,14 +128,14 @@ def parse_rules(text: str, status_codes: list[dict]) -> Optional[Intent]:
         if code == "10-15":
             patterns.append(r"\btransporting\b")
         if any(re.search(p, t) for p in patterns):
-            if code in {"en-route", "10-23"} and num is not None and re.search(r"\b(attach|to incident|to call)\b", t):
-                break  # "en route to incident 104" -> attach
+            if code in {"en-route", "10-23"} and re.search(r"\b(attach|to (?:the |that |this )?(?:incident|call))\b", t):
+                break  # "en route to incident 104" / "en route to the call" -> attach
             return Intent("status_change", {"code": sc["code"]})
 
-    if re.search(r"\b(attach|assign|put|add)\b.*\b(me|us|my unit)\b", t) or re.search(r"\b(en ?route|responding) to (incident|call)", t):
-        if num is None:
-            return Intent("attach", {}, clarification="Which incident number should I attach you to?")
-        return Intent("attach", {"incident_number": num})
+    if (re.search(r"\b(attach|assign|put|add)\b.*\b(me|us|my unit)\b", t)
+            or re.search(r"\b(en ?route|responding|show me on|put me on|i'?ll take)\b.*\b(incident|call)\b", t)):
+        # No number ("attach me to the call") -> resolved against the database by the executor.
+        return Intent("attach", {"incident_number": num} if num is not None else {"latest": True})
     if re.search(r"\b(clear|cleared|detach|remove me|done)\b.*\b(incident|call|scene)\b", t) or re.search(r"\bi'?m clear\b", t):
         return Intent("detach", {"incident_number": num} if num else {})
     if re.search(r"\b(backup|back up|assistance|additional units|need units|cover)\b", t) and not re.search(r"\b(how many|which|what)\b", t):

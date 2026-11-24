@@ -28,6 +28,34 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+async def latest_call(core: "DispatchCore", guild_id: int, unit_id: Optional[int]) -> tuple[Optional[dict], str]:
+    """Which call does an officer mean by "attach me to the call"? Decided from the database:
+    1. the only active incident, else
+    2. the incident dispatch most recently announced (new call / repeat) in the last 15 minutes,
+       that the unit is not already on, else
+    3. ask which incident number (listing the open ones)."""
+    active = [i for i in await core.incidents.list_active(guild_id)]
+    if unit_id:
+        u = await core.units.unit(unit_id)
+        current = u.get("current_incident_id") if u else None
+        active = [i for i in active if i["id"] != current] or active
+    if not active:
+        return None, "Dispatch has no active calls to attach you to."
+    if len(active) == 1:
+        return active[0], ""
+    row = await core.db.fetchone(
+        "SELECT a.incident_id FROM announcements a JOIN incidents i ON i.id = a.incident_id "
+        "WHERE a.guild_id = ? AND a.kind IN ('new_911','repeat') AND a.status IN ('played','muted') "
+        "AND a.played_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-15 minutes') AND i.status != 'closed' "
+        "ORDER BY a.played_at DESC LIMIT 1", (guild_id,))
+    if row:
+        for i in active:
+            if i["id"] == row["incident_id"]:
+                return i, ""
+    numbers = ", ".join(str(i["number"]) for i in active[:6])
+    return None, f"Which incident? Active calls are {numbers}. Say, Dispatch, attach me to incident {active[0]['number']}."
+
+
 async def execute_intent(core: "DispatchCore", guild_id: int, officer: Optional[dict], intent: Intent,
                          actor_id: int, memory: Optional[ConversationMemory] = None) -> str:
     """Run an intent against the authoritative database and return the dispatcher's reply."""
@@ -59,7 +87,12 @@ async def execute_intent(core: "DispatchCore", guild_id: int, officer: Optional[
             unit = await core.assignments.set_unit_status(unit_id, args["code"], actor_id, officer["id"])
             return f"{callsign}, copy, showing you {unit['status_code']}, {unit.get('status_label') or ''}.".replace(", .", ".")
         if name == "attach":
-            inc = await resolve_incident()
+            if args.get("incident_number") is None:
+                inc, question = await latest_call(core, guild_id, unit_id)
+                if inc is None:
+                    return question
+            else:
+                inc = await resolve_incident()
             inc, unit, prev = await core.assignments.attach(inc["id"], unit_id, actor_id)
             extra = f" Cleared you from incident {prev['number']}." if prev else ""
             return f"{callsign}, copy, attached to incident {inc['number']}, {inc.get('location') or 'location unavailable'}.{extra}"
