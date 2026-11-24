@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Optional
 
 import discord
@@ -79,9 +79,13 @@ class GuildVoice:
     last_playback: Optional[str] = None
     connecting_since: Optional[float] = None
     receive_recoveries: int = 0
+    rejoins: list = field(default_factory=list)
 
 
 class VoiceManager:
+    MAX_AUTO_REJOINS = 4      # automatic (re)joins allowed (startup join + 3 rejoins) ...
+    REJOIN_WINDOW_S = 90      # ... within this window before auto-reconnect pauses itself
+
     def __init__(self, bot: discord.Client, db: Database, bus: EventBus, ffmpeg_path: str):
         self.bot = bot
         self.db = db
@@ -357,6 +361,23 @@ class VoiceManager:
                 await asyncio.sleep(2)
                 await self.join(guild.id, channel_id)
 
+    async def _allow_auto_rejoin(self, guild_id: int) -> bool:
+        """Someone removing the bot from voice repeatedly means "stop" - don't keep forcing it back.
+        Normal network drops still reconnect; a manual Join re-enables auto-reconnect."""
+        g = self.gs(guild_id)
+        now = asyncio.get_running_loop().time()
+        g.rejoins = [t for t in g.rejoins if now - t < self.REJOIN_WINDOW_S]
+        if len(g.rejoins) >= self.MAX_AUTO_REJOINS:
+            g.rejoins.clear()
+            await self.update_settings(guild_id, autojoin=False)
+            log.warning("Dispatcher left voice repeatedly within %ds - auto-reconnect paused", self.REJOIN_WINDOW_S)
+            await self.bus.publish(ev.ACTIVITY, guild_id, text=(
+                "Dispatcher was removed from voice repeatedly; auto-reconnect paused. "
+                "Use Voice Control -> Join / Reconnect to bring it back."))
+            return False
+        g.rejoins.append(now)
+        return True
+
     # ------------------------------------------------------------------ watchdog
     def start_watchdog(self) -> None:
         if self._watchdog is None or self._watchdog.done():
@@ -388,6 +409,8 @@ class VoiceManager:
                             pass
                     g.connecting_since = None
                     if vc is None:
+                        if not await self._allow_auto_rejoin(guild.id):
+                            continue
                         backoff = min(300, 10 * (2 ** min(g.reconnect_failures, 5)))
                         g.reconnect_failures += 1
                         try:

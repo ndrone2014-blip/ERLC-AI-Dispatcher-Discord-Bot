@@ -115,6 +115,16 @@ async def test_crypto_error_storm_triggers_one_recovery_and_hides_spam():
 
 
 @pytest.mark.asyncio
+async def test_auto_rejoin_pauses_after_repeated_removals(db):
+    from voice.connection import VoiceManager
+    vm = VoiceManager(SimpleNamespace(loop=asyncio.get_running_loop()), db, EventBus(), "ffmpeg")
+    await vm.update_settings(GUILD, autojoin=True, channel_id=5)
+    results = [await vm._allow_auto_rejoin(GUILD) for _ in range(5)]
+    assert results == [True, True, True, True, False]   # startup join + 3 rejoins, then pause
+    assert (await vm.settings(GUILD))["autojoin"] is False
+
+
+@pytest.mark.asyncio
 async def test_playback_refuses_when_dave_never_ready(db, monkeypatch):
     from voice import connection as vconn
     from voice.connection import VoiceManager
