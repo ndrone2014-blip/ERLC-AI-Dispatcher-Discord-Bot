@@ -7,6 +7,14 @@
 * Radio processing: open beep → natural pause → speech → pause → two-tone close beep, very light hiss, then FFmpeg
   band-pass (280–3600 Hz) and gentle compression. Every element can be toggled in **Voice Control → Voice Settings**.
 * Sending audio uses discord.py **2.7.1**, which implements Discord's **DAVE** end-to-end encryption (via `davey`).
+* **Important fix (`voice/dave_patch.py`):** with `davey` 0.2.x, discord.py 2.7.1 completes the DAVE handshake but never
+  calls `prepare_transition` / `execute_transition`, so the session never becomes ready and every listener's client
+  silently drops the bot's audio ("speaking" ring, no sound). The patch adds those calls; verified on a live server
+  (`DAVE: transition … executed=True, encryption ready=True` in the log, radio check heard). Playback also waits for
+  encryption to be ready instead of sending audio nobody can hear.
+* Troubleshooting: `/voice diagnose`, the Voice panel's *Voice encryption (DAVE)* field, and `VOICE_DEBUG=true` in `.env`
+  (logs every handshake step; turn off afterwards). Only **one** copy of the bot may run — a second copy with the same
+  token kicks the first out of voice (close code 4006); the bot now refuses to start twice.
 
 ## Listening (officers → dispatcher) — read this
 
