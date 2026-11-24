@@ -158,11 +158,29 @@ class DispatchBot(commands.Bot):
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s (%s) in %d guild(s)", self.user, self.user.id if self.user else "?", len(self.guilds))
+        await self._update_presence()
         for guild in self.guilds:
             await self._init_guild(guild)
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
+        await self._update_presence()
         await self._init_guild(guild)
+
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        await self._update_presence()
+
+    def _presence_text(self) -> str:
+        count = len(self.guilds)
+        return f"/help | Dispatching {count} Server{'' if count == 1 else 's'}"
+
+    async def _update_presence(self) -> None:
+        """'Watching' status on the bot's profile; the same text shows as the title and the line under it."""
+        text = self._presence_text()
+        activity = discord.Activity(type=discord.ActivityType.watching, name=text, state=text)
+        try:
+            await self.change_presence(status=discord.Status.online, activity=activity)
+        except Exception:
+            log.exception("Could not update the bot's status")
 
     async def _init_guild(self, guild: discord.Guild) -> None:
         await self.core.units.ensure_defaults(guild.id, guild.name)
