@@ -10,8 +10,8 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-RADIO_PROMPT = ("Dispatch, 10-4, 10-7, 10-8, 10-23, 10-15, en route, on scene, incident, backup, BOLO, callsign, "
-                "postal, Liberty County, Sheriff, State Police, EMS.")
+RADIO_PROMPT = ("Dispatch, 10-4, 10-7, 10-8, 10-11, 10-23, 10-15, en route, on scene, traffic stop, pursuit, plate, "
+                "Adam Boy Charles, incident, backup, BOLO, callsign, postal, Liberty County, Sheriff, State Police, EMS.")
 
 
 class STTEngine:

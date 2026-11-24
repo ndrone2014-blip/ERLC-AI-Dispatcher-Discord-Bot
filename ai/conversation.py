@@ -29,6 +29,8 @@ INTENTS = {
     "query_incident": "Ask for details of an incident. args: incident_number (optional = current)",
     "query_available": "Ask which units are available.",
     "query_bolos": "Ask about active BOLOs.",
+    "self_initiated": ("Officer starts their own activity. args: kind (traffic_stop|subject_stop|pursuit|foot_pursuit), "
+                       "location (only if said), plate (only if said), detail"),
     "question": "Any other dispatch-related question. args: text",
     "unclear": "The request is ambiguous or not a dispatch request.",
 }
@@ -36,8 +38,68 @@ INTENTS = {
 NUMBER_WORDS = {
     "zero": "0", "oh": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7",
     "eight": "8", "nine": "9", "ten": "10", "eleven": "11", "twelve": "12", "fifteen": "15", "twenty": "20",
-    "twenty-three": "23", "twenty three": "23",
+    "twenty-three": "23", "twenty three": "23", "eighty": "80",
 }
+
+# Officer-initiated activity: kind -> (spoken label, phrase pattern)
+SELF_INITIATED = {
+    "traffic_stop": ("traffic stop", r"\b(traffic stop|car stop|vehicle stop|t-stop|10-11)\b"),
+    "foot_pursuit": ("foot pursuit", r"\b(foot pursuit|foot chase|on foot after|running after)\b"),
+    "pursuit": ("vehicle pursuit", r"\b(pursuit|10-80|in a chase|chasing|vehicle fleeing|failing to stop|fail to stop)\b"),
+    "subject_stop": ("subject stop", r"\b(subject stop|pedestrian stop|ped stop|stopping a subject|10-12)\b"),
+}
+
+_PLATE_RE = re.compile(r"\b(?:plate|tag|license(?: plate)?)(?: number)?(?: is| of|:)?\s+([a-z0-9][a-z0-9 -]{1,60}?)(?=,|\.|$|\s+(?:at|on|near|heading|going)\b)")
+
+# Phonetic alphabets used on police radio (APCO "Adam, Boy..." and NATO "Alpha, Bravo...").
+PHONETIC = {
+    "adam": "A", "alpha": "A", "boy": "B", "bravo": "B", "charles": "C", "charlie": "C", "david": "D", "delta": "D",
+    "edward": "E", "echo": "E", "frank": "F", "foxtrot": "F", "george": "G", "golf": "G", "henry": "H", "hotel": "H",
+    "ida": "I", "india": "I", "john": "J", "juliet": "J", "king": "K", "kilo": "K", "lincoln": "L", "lima": "L",
+    "mary": "M", "mike": "M", "nora": "N", "november": "N", "ocean": "O", "oscar": "O", "paul": "P", "papa": "P",
+    "queen": "Q", "quebec": "Q", "robert": "R", "romeo": "R", "sam": "S", "sierra": "S", "tom": "T", "tango": "T",
+    "union": "U", "uniform": "U", "victor": "V", "william": "W", "whiskey": "W", "x-ray": "X", "xray": "X",
+    "young": "Y", "yankee": "Y", "zebra": "Z", "zulu": "Z",
+}
+DIGIT_WORDS = {"zero": "0", "oh": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6",
+               "seven": "7", "eight": "8", "nine": "9", "niner": "9"}
+
+
+def spoken_plate(raw: str) -> Optional[str]:
+    """'adam boy charles 1 2 3' / 'abc 123' / 'a b c one two three' -> 'ABC123'."""
+    out = []
+    for tok in re.split(r"[\s-]+", raw.lower()):
+        if not tok:
+            continue
+        if tok in PHONETIC:
+            out.append(PHONETIC[tok])
+        elif tok in DIGIT_WORDS:
+            out.append(DIGIT_WORDS[tok])
+        elif re.fullmatch(r"[a-z0-9]{1,8}", tok):
+            out.append(tok.upper())
+        else:
+            break
+    plate = "".join(out)
+    return plate if 2 <= len(plate) <= 8 else None
+_LOCATION_RE = re.compile(r"\b(?:at|on|near|by|in front of|outside|around)\s+(?!a\b|an\b|the stop\b|traffic\b|foot\b)(.+?)"
+                          r"(?=,|\.|\bplate\b|\btag\b|\bwith\b|\bheading\b|\bin a\b|$)")
+
+
+def _self_initiated(t: str) -> Optional[Intent]:
+    for kind, (label, pattern) in SELF_INITIATED.items():
+        m = re.search(pattern, t)
+        if not m:
+            continue
+        rest = t[m.end():]
+        loc = _LOCATION_RE.search(rest) or _LOCATION_RE.search(t[: m.start()].replace("show me on", "").replace("i'm on", ""))
+        plate = _PLATE_RE.search(t)
+        location = loc.group(1).strip(" ,.") if loc else None
+        if location and re.fullmatch(r"(a|an|the|my|scene|duty)", location):
+            location = None
+        args = {"kind": kind, "location": location.title() if location else None,
+                "plate": spoken_plate(plate.group(1)) if plate else None, "detail": t[:200]}
+        return Intent("self_initiated", args)
+    return None
 
 WAKE_WORDS = ("dispatcher", "dispatch", "central", "control")
 
@@ -61,6 +123,9 @@ MISHEARD = [
     (r"\bten[\s-]?ate\b", "10-8"),
     (r"\bin route\b", "en route"),
     (r"\bback-up\b", "backup"),
+    (r"\b(?:play|plait|plates?)(?=\s*\d|\d)", "plate "),
+    (r"\b(?:play|plait)(?= (?:number|is)\b)", "plate"),
+    (r"\btraffic stopped\b", "traffic stop"),
 ]
 
 
@@ -70,7 +135,7 @@ def normalize_speech(text: str) -> str:
     t = re.sub(r"[.!?]+$", "", t)
     for pattern, repl in MISHEARD:
         t = re.sub(pattern, repl, t)
-    t = re.sub(r"\bten[\s-]+(twenty[\s-]+three|twenty|fifteen|eight|seven|six|four|five|nine|one|two|three)\b",
+    t = re.sub(r"\bten[\s-]+(twenty[\s-]+three|twenty|fifteen|eighty|eleven|twelve|eight|seven|six|four|five|nine|one|two|three)\b",
                lambda m: "10-" + NUMBER_WORDS.get(m.group(1).replace(" ", "-"), NUMBER_WORDS.get(m.group(1), m.group(1))), t)
     t = re.sub(r"\b10[\s.]+(\d{1,2})\b", r"10-\1", t)
     t = re.sub(r"\s+", " ", t)
@@ -113,6 +178,15 @@ def parse_rules(text: str, status_codes: list[dict]) -> Optional[Intent]:
         return Intent("query_available")
     if re.search(r"\bhow many (units|officers)\b", t) or re.search(r"\bwho('?s| is)? (on|assigned to)\b", t):
         return Intent("query_incident_units", {"incident_number": num} if num else {})
+
+    # Clearing from a self-initiated stop/pursuit
+    if re.search(r"\b(clear|cleared|code 4|done)\b.*\b(stop|pursuit|chase)\b", t):
+        return Intent("detach", {"incident_number": num} if num else {})
+    # Officer-initiated activity ("show me on a traffic stop at ...") before plain status codes
+    si = _self_initiated(t)
+    if (si is not None and not re.search(r"\b(how many|which|what|any)\b", t)
+            and (not re.search(r"\b(backup|back up)\b", t) or re.search(r"\b(show me|i'?m|we'?re|starting|initiating)\b", t))):
+        return si
 
     # Status codes - match configured codes and labels
     for sc in status_codes:
@@ -171,11 +245,13 @@ async def parse_with_ai(ai: AIManager, guild_id: int, text: str, status_codes: l
     )
     try:
         resp = await ai.generate(guild_id, purpose="intent", system="You convert radio transmissions into structured dispatch intents.",
-                                 prompt=prompt, json_mode=True, max_tokens=200, temperature=0.0)
+                                 prompt=prompt, json_mode=True, max_tokens=400, temperature=0.0)
         data = extract_json(resp.text)
     except (AIUnavailable, ProviderError) as e:
         log.info("AI intent parsing unavailable: %s", e)
-        return Intent("unclear", source="none", clarification="Dispatch copies, but I couldn't process that request right now. Please use the Discord panel.")
+        return Intent("unclear", source="none", clarification=(
+            "Dispatch, say again? You can say: show me available, attach me to the call, "
+            "show me on a traffic stop, request backup, or what calls are active."))
     name = str(data.get("intent", "unclear"))
     if name not in INTENTS:
         name = "unclear"

@@ -65,7 +65,8 @@ class AssignmentService:
             await self.units.set_status(unit_id, enroute, actor_id)
         await self.incidents.add_history(inc, "unit_attached", actor_id, unit=unit["callsign"])
         await self.audit.record(inc["guild_id"], actor_id, "incident.attach", f"incident:{inc['number']}", {"unit": unit["callsign"]})
-        await self.bus.publish(ev.ASSIGNMENT_CHANGED, inc["guild_id"], incident_id=incident_id, unit_id=unit_id, action="attach")
+        await self.bus.publish(ev.ASSIGNMENT_CHANGED, inc["guild_id"], incident_id=incident_id, unit_id=unit_id, action="attach",
+                               actor_id=actor_id)
         await self.bus.publish(ev.ACTIVITY, inc["guild_id"], text=f"{unit['callsign']} attached to incident #{inc['number']}")
         return await self.incidents.get(incident_id), await self.units.unit(unit_id), previous
 

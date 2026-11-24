@@ -81,7 +81,7 @@ async def execute_intent(core: "DispatchCore", guild_id: int, officer: Optional[
         return None
 
     try:
-        if name in {"status_change", "attach", "detach", "backup", "add_note"} and not unit_id:
+        if name in {"status_change", "attach", "detach", "backup", "add_note", "self_initiated"} and not unit_id:
             return "Unidentified unit. State your callsign and register with slash unit register before using voice commands."
         if name == "status_change":
             unit = await core.assignments.set_unit_status(unit_id, args["code"], actor_id, officer["id"])
@@ -96,9 +96,30 @@ async def execute_intent(core: "DispatchCore", guild_id: int, officer: Optional[
             inc, unit, prev = await core.assignments.attach(inc["id"], unit_id, actor_id)
             extra = f" Cleared you from incident {prev['number']}." if prev else ""
             return f"{callsign}, copy, attached to incident {inc['number']}, {inc.get('location') or 'location unavailable'}.{extra}"
+        if name == "self_initiated":
+            kind = str(args.get("kind") or "traffic_stop")
+            if kind not in core.SELF_INITIATED_LABELS:
+                return "Copy. What type of stop? Say traffic stop, subject stop, or pursuit."
+            location = (str(args["location"]).strip() or None) if args.get("location") else None
+            plate = (str(args["plate"]).strip().upper() or None) if args.get("plate") else None
+            inc, unit = await core.create_officer_initiated(guild_id, actor_id, unit_id, kind=kind, location=location,
+                                                            plate=plate, detail=str(args.get("detail") or "")[:200])
+            label = core.SELF_INITIATED_LABELS[kind][0].lower()
+            where = f" at {location}" if location else ""
+            plate_txt = f", plate {' '.join(plate)}" if plate else ""
+            if kind in {"pursuit", "foot_pursuit"}:
+                return (f"{callsign}, copy, {label}{where}{plate_txt}. Incident {inc['number']}. "
+                        f"All units be advised, backup requested.")
+            ask = "" if location else " Advise your location."
+            return f"{callsign}, copy, showing you on a {label}{where}{plate_txt}. Incident {inc['number']}.{ask}"
         if name == "detach":
             inc = await resolve_incident()
             await core.assignments.detach(inc["id"], unit_id, actor_id)
+            # An officer-initiated stop with nobody left on it is finished when the officer clears.
+            if (inc["source"] == "manual" and (inc.get("caller_display") or "").startswith("Officer-initiated")
+                    and not await core.incidents.assigned_units(inc["id"])):
+                await core.incidents.close(inc["id"], actor_id, f"Cleared by {callsign}")
+                return f"{callsign}, copy, clear. Incident {inc['number']} closed."
             return f"{callsign}, copy, clear from incident {inc['number']}."
         if name == "backup":
             req = await core.assignments.request_backup(guild_id, unit_id, None, actor_id, args.get("urgency", "routine"),
@@ -238,6 +259,8 @@ class VoiceCommandProcessor:
             reply = "Unidentified station, state your callsign. Register your unit with slash unit register."
         else:
             reply = await execute_intent(self.core, guild_id, officer, intent, user_id, self.memory)
+        log.info("Voice command from %s: heard %r -> intent %s %s (%s) -> reply %r", speaker, text, intent.name,
+                 intent.args, intent.source, reply)
         self.memory.add(guild_id, user_id, speaker, rest)
         self.memory.add(guild_id, user_id, "Dispatch", reply)
         await self._reply(guild_id, speaker, text, reply)

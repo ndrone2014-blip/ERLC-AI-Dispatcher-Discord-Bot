@@ -42,6 +42,13 @@ class UnitService:
                     "INSERT OR IGNORE INTO status_codes(guild_id, code, label, availability, sort) VALUES (?, ?, ?, ?, ?)",
                     (guild_id, code, label, avail, sort),
                 )
+            await self.db.set_config(guild_id, "status_defaults_version", 2)
+        elif int(await self.db.get_config(guild_id, "status_defaults_version", 1) or 1) < 2:
+            # v2 added 10-11 Traffic Stop. Added once; if an admin deletes it later it stays deleted.
+            await self.db.execute(
+                "INSERT OR IGNORE INTO status_codes(guild_id, code, label, availability, sort) VALUES (?, '10-11', 'Traffic Stop', 'assigned', 3)",
+                (guild_id,))
+            await self.db.set_config(guild_id, "status_defaults_version", 2)
 
     # ------------------------------------------------------------------ departments
     async def departments(self, guild_id: int, active_only: bool = True) -> list[dict]:

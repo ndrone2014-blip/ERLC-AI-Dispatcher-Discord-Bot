@@ -51,6 +51,7 @@ DEFAULT_STATUS_CODES = [
     ("10-8", "Available", "available", 1),
     ("EN-ROUTE", "En Route", "assigned", 2),
     ("10-23", "On Scene", "assigned", 3),
+    ("10-11", "Traffic Stop", "assigned", 3),
     ("10-15", "Transporting", "assigned", 4),
     ("10-7", "Unavailable", "unavailable", 5),
     ("OOS", "Out of Service", "off", 6),

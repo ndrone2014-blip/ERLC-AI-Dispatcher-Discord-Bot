@@ -91,7 +91,8 @@ class DispatchCore:
             return await assess_incident(None, guild_id, inc, departments=departments, assigned_units=assigned,
                                          availability=availability, notes=notes)
 
-    async def handle_new_incident(self, incident_id: int, *, speak: bool = True, delayed: bool = False) -> dict:
+    async def handle_new_incident(self, incident_id: int, *, speak: bool = True, delayed: bool = False,
+                                  skip_reason: str = "Backlog call found on first sync; recorded and shown without voice announcement") -> dict:
         inc = await self.incidents.get(incident_id)
         assessment = await self._assess(inc)
         threshold = await self.setting(inc["guild_id"], "priority_approval_threshold")
@@ -110,8 +111,7 @@ class DispatchCore:
                                              incident_id=incident_id, incident_priority=inc.get("priority"))
             await self.incidents.add_history(inc, "announcement_queued", None, wording=wording_source)
         else:
-            await self.incidents.add_history(inc, "announcement_skipped", None,
-                                             reason="Backlog call found on first sync; recorded and shown without voice announcement")
+            await self.incidents.add_history(inc, "announcement_skipped", None, reason=skip_reason)
         await self.bus.publish(ev.INCIDENT_UPDATED, inc["guild_id"], incident_id=incident_id, changes=["assessment"])
         return inc
 
@@ -152,6 +152,43 @@ class DispatchCore:
             location=location or None, caller_display=f"Officer report: {reporter}" if reporter else "Officer report",
             created_by=user_id)
         return await self.handle_new_incident(inc["id"])
+
+    SELF_INITIATED_LABELS = {
+        "traffic_stop": ("Traffic stop", "Traffic stop", "10-11"),
+        "subject_stop": ("Subject stop", "Subject stop", "10-23"),
+        "pursuit": ("Vehicle pursuit", "Pursuit / fleeing subject", "10-23"),
+        "foot_pursuit": ("Foot pursuit", "Pursuit / fleeing subject", "10-23"),
+    }
+
+    async def create_officer_initiated(self, guild_id: int, actor_id: int, unit_id: int, *, kind: str,
+                                       location: Optional[str] = None, plate: Optional[str] = None,
+                                       detail: str = "") -> tuple[dict, dict]:
+        """An officer starts their own activity (traffic stop, pursuit...). Returns (incident, unit).
+
+        Recorded as an officer-initiated, UNVERIFIED incident (the ER:LC API does not expose stops/pursuits).
+        No new-911 broadcast: the dispatcher's spoken read-back is the radio acknowledgement.
+        Pursuits additionally broadcast an urgent backup request to all units.
+        """
+        if kind not in self.SELF_INITIATED_LABELS:
+            raise ValueError(f"Unknown activity {kind}")
+        nature, category, status_code = self.SELF_INITIATED_LABELS[kind]
+        unit = await self.units.unit(unit_id)
+        description = " · ".join(x for x in [f"Plate {plate}" if plate else None, detail or None] if x) or None
+        inc = await self.incidents.create(
+            guild_id, source="manual", verification="unverified", nature=nature + (f" — {plate}" if plate else ""),
+            description=description, location=location, category=category,
+            caller_display=f"Officer-initiated: {unit['callsign'] if unit else 'unit'}", created_by=actor_id)
+        await self.incidents.add_history(inc, "officer_initiated", actor_id, kind=kind, plate=plate)
+        await self.handle_new_incident(inc["id"], speak=False, skip_reason="Officer-initiated; acknowledged by voice read-back")
+        inc, unit, _ = await self.assignments.attach(inc["id"], unit_id, actor_id)
+        code = status_code if await self.units.status_code(guild_id, status_code) else (
+            await self.units.code_for_availability(guild_id, "assigned"))
+        if code:
+            unit = await self.units.set_status(unit_id, code, actor_id)
+        if kind in {"pursuit", "foot_pursuit"}:
+            await self.assignments.request_backup(guild_id, unit_id, inc["id"], actor_id, "urgent",
+                                                  f"{nature}{' near ' + location if location else ''}")
+        return await self.incidents.get(inc["id"]), unit
 
     async def create_test_call(self, guild_id: int, user_id: int, *, location: str, description: str) -> dict:
         inc = await self.incidents.create(
@@ -205,6 +242,10 @@ class DispatchCore:
         unit = await self.units.unit(e.data["unit_id"])
         if not inc or not unit:
             return
+        actor = e.data.get("actor_id")
+        if actor and await self.db.fetchone("SELECT 1 FROM officers WHERE unit_id = ? AND discord_id = ? AND active = 1",
+                                            (unit["id"], actor)):
+            return  # officer attached themselves; their own read-back already acknowledges it
         await self.announcements.enqueue(
             e.guild_id, "unit_assignment", f"{unit['callsign']}, show you attached to incident {inc['number']}, {inc.get('location') or 'location unavailable'}.",
             dedupe_key=f"assign:{inc['id']}:{unit['id']}:{utcnow().strftime('%H%M%S')}", incident_id=inc["id"])
