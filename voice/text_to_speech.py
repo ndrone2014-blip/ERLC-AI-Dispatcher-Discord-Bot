@@ -10,10 +10,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import shutil
 import tempfile
 import threading
 import uuid
 import wave
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -50,6 +52,11 @@ class TTSEngine:
         self.work_dir = work_dir or Path(tempfile.gettempdir()) / "erlc_dispatch_tts"
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self._piper_voices: dict[str, object] = {}
+        # Dispatch says the same lines over and over ("dispatch copies loud and clear", "1A-12, copy, ...").
+        # Keep recently spoken lines so a repeat starts playing instantly instead of being synthesized again.
+        self._cache: "OrderedDict[tuple, Path]" = OrderedDict()
+        self._cache_dir = self.work_dir / "cache"
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self.last_error: Optional[str] = None
 
@@ -77,8 +84,38 @@ class TTSEngine:
             return False
 
     # ------------------------------------------------------------------ synthesis
+    CACHE_SIZE = 150
+
     async def synthesize(self, text: str, voice: Optional[str] = None, speed: float = 1.0) -> Path:
-        return await asyncio.to_thread(self._synthesize_sync, spoken_form(text), voice or self.default_voice, speed)
+        return await asyncio.to_thread(self._cached_synthesize, spoken_form(text), voice or self.default_voice, speed)
+
+    async def warmup(self, voice: Optional[str] = None) -> None:
+        """Load the Piper voice now so the first reply after startup isn't slowed by loading it."""
+        try:
+            path = await self.synthesize("Dispatch.", voice)
+            self.cleanup(path)
+        except Exception as e:
+            log.debug("TTS warmup failed: %s", e)
+
+    def _cached_synthesize(self, text: str, voice: str, speed: float) -> Path:
+        key = (text, voice, round(float(speed or 1.0), 2))
+        out = self.work_dir / f"tts-{uuid.uuid4().hex}.wav"
+        cached = self._cache.get(key)
+        if cached is not None and cached.exists():
+            self._cache.move_to_end(key)
+            shutil.copyfile(cached, out)
+            return out
+        fresh = self._synthesize_sync(text, voice, speed)
+        try:
+            keep = self._cache_dir / f"{uuid.uuid4().hex}.wav"
+            shutil.copyfile(fresh, keep)
+            self._cache[key] = keep
+            while len(self._cache) > self.CACHE_SIZE:
+                _, old = self._cache.popitem(last=False)
+                old.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return fresh
 
     def _synthesize_sync(self, text: str, voice: str, speed: float) -> Path:
         out = self.work_dir / f"tts-{uuid.uuid4().hex}.wav"

@@ -39,7 +39,7 @@ DAVE_MAGIC = b"\xfa\xfa"
 OPUS_SILENCE = b"\xf8\xff\xfe"
 MIN_UTTERANCE_S = 0.5
 MAX_UTTERANCE_S = 15.0
-END_OF_SPEECH_S = 0.6   # silence that ends a transmission (lower = faster replies)
+END_OF_SPEECH_S = 0.5   # silence that ends a transmission (lower = faster replies)
 BYTES_PER_SECOND = 48000 * 2 * 2  # 48 kHz, stereo, s16
 
 

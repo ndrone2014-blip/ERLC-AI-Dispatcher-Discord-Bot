@@ -81,7 +81,12 @@ async def test_long_chatter_only_screens_the_start(core):
     stt = FakeSTT("so anyway we were driving down the road")
     p = processor(core, stt)
     await p._transcribe(np.zeros(16000 * 5, dtype=np.float32), [], True)
-    assert stt.windows == [p.SCREEN_S]
+    assert stt.windows == [None]              # quiet channel: one full pass, no extra pass for commands
+    stt.windows.clear()
+    p.submit(GUILD, 1, b"x")
+    p.submit(GUILD, 2, b"x")
+    await p._transcribe(np.zeros(16000 * 5, dtype=np.float32), [], True)
+    assert stt.windows == [p.SCREEN_S]        # busy channel: chatter screened on its start only
 
 
 @pytest.mark.asyncio

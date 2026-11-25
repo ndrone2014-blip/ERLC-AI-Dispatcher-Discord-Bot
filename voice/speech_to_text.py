@@ -79,17 +79,17 @@ class STTEngine:
     async def quick_transcribe(self, audio16k: np.ndarray, max_seconds: Optional[float] = None) -> str:
         """Fast, rougher transcription (used to detect the wake word / simple commands)."""
         clip = audio16k if max_seconds is None else audio16k[: int(max_seconds * SAMPLE_RATE)]
-        return await asyncio.to_thread(self._run, self.quick_model_name or self.model_name, clip)
+        return await asyncio.to_thread(self._run, self.quick_model_name or self.model_name, clip, False)
 
     @property
     def has_quick_model(self) -> bool:
         return self.quick_model_name is not None
 
-    def _run(self, name: str, audio16k: np.ndarray) -> str:
+    def _run(self, name: str, audio16k: np.ndarray, vad: bool = True) -> str:
         with self._lock:
             model = self._load(name)
             segments, _info = model.transcribe(
-                audio16k, language="en", beam_size=1, vad_filter=True, initial_prompt=RADIO_PROMPT,
+                audio16k, language="en", beam_size=1, vad_filter=vad, initial_prompt=RADIO_PROMPT,
                 condition_on_previous_text=False, no_speech_threshold=0.6, without_timestamps=True,
             )
             text = " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.8)

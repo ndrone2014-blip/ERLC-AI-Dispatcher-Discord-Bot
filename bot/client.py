@@ -151,6 +151,7 @@ class DispatchBot(commands.Bot):
         self.voice_commands = VoiceCommandProcessor(self.core, self.voice, self.stt, self.permissions, self._voice_log,
                                                     self._member_lookup)
         self.voice.on_utterance = self.voice_commands.submit
+        asyncio.create_task(self.tts.warmup())   # load the dispatcher voice now, not on the first reply
         recovered = await self.core.announcements.recover_interrupted()
         if recovered:
             log.info("Recovered %s interrupted announcement(s) back into the queue", recovered)

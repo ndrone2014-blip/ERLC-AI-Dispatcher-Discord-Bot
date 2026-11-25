@@ -10,6 +10,11 @@
 - **Talking over the dispatcher works.** Listening no longer switches off while the dispatcher speaks (in a busy
   channel it is speaking a lot). The *Half-duplex (echo guard)* setting now only ignores clips that repeat what the
   dispatcher just said.
+- **Faster replies.** Repeated dispatcher lines are cached and start playing instantly; the dispatcher voice is
+  loaded at startup instead of on the first reply; end of a transmission is detected sooner (0.5 s of silence);
+  the fast speech pass skips an extra voice-detection step; a quiet channel never needs two passes per command.
+- **Clearer diagnostics.** `/voice diagnose` and the Voice panel show the speech queue: heard, answered, ignored
+  (no wake word), dropped (too busy), echo ignored and the last thing heard.
 - **Listening can't silently die** from one bad voice packet any more (busy calls produce more of them).
 
 ## 🦃 Pulse Dispatch | ERLC — Thanksgiving Update · v3.0.0 (2026-11-26)

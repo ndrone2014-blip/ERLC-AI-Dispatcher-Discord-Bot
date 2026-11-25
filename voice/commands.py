@@ -340,7 +340,9 @@ class VoiceCommandProcessor:
         """Cheap quick pass first; the accurate model only when needed. Returns (text, woke, rest, intent)."""
         seconds = len(audio) / 16000
         if self.stt.has_quick_model:
-            screened = require_wake and seconds > self.SCREEN_S
+            # Short clips normally get one full quick pass. Only when people are queued up behind this clip
+            # (busy channel) or the clip is long is just the start screened for the wake word.
+            screened = require_wake and seconds > self.SCREEN_S and (seconds > 6 or self._queue.qsize() >= 2)
             quick = await self.stt.quick_transcribe(audio, max_seconds=self.SCREEN_S if screened else None)
             woke, rest = strip_wake_word(quick)
             if require_wake and not woke and not maybe_wake_word(quick):
