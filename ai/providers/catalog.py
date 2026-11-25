@@ -71,12 +71,12 @@ CATALOG: list[ProviderSpec] = [
         "Create an account at cloud.cerebras.ai → API Keys → Generate. No card needed.", "csk-",
         models=("gpt-oss-120b", "llama3.1-8b", "qwen-3-32b"), docs_url="https://inference-docs.cerebras.ai/"),
     ProviderSpec(
-        "gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash",
+        "gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "gemini-3.8-flash",
         "https://aistudio.google.com/apikey", "free",
         "Free tier through Google AI Studio (per-model daily limits). Free-tier data may be used to improve Google products.",
         "GEMINI_API_KEY", "GEMINI_MODEL",
         "Open aistudio.google.com/apikey → Create API key. No card needed.", "AIza",
-        models=("gemini-2.5-flash", "gemini-2.5-flash-lite"), docs_url="https://ai.google.dev/gemini-api/docs/rate-limits"),
+        models=("gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"), docs_url="https://ai.google.dev/gemini-api/docs/rate-limits"),
     ProviderSpec(
         "openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "openrouter/free",
         "https://openrouter.ai/settings/keys", "free",

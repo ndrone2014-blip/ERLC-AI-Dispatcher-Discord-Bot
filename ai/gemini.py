@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from typing import Optional
@@ -11,6 +12,16 @@ import aiohttp
 from .providers.base import AIProvider, AIResponse, ProviderError
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+log = logging.getLogger(__name__)
+
+# Free-tier Gemini models tried (in order) when the configured one answers 503 "high demand".
+# Gemini 2.5 models were shut down on 16 Oct 2026, so only the 3.x line is listed.
+OVERLOAD_FALLBACKS = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]
+
+
+def _text_of(cand: dict) -> str:
+    parts = (cand or {}).get("content", {}).get("parts", []) or []
+    return "".join(p.get("text", "") for p in parts if not p.get("thought"))
 
 
 class GeminiProvider(AIProvider):
@@ -32,25 +43,22 @@ class GeminiProvider(AIProvider):
     def _headers(self, api_key: Optional[str] = None) -> dict:
         return {"x-goog-api-key": api_key or self.api_key, "Content-Type": "application/json"}
 
-    async def generate(self, *, system: str, prompt: str, model: Optional[str] = None, json_mode: bool = False,
-                       max_tokens: int = 600, temperature: float = 0.3, timeout: float = 20.0,
-                       api_key: Optional[str] = None, **_: object) -> AIResponse:
-        if not (api_key or self.configured):
-            raise ProviderError("No Gemini API key is set", kind="auth")
-        model = (model or self.default_model).removeprefix("models/")
+    @staticmethod
+    def _body(system: str, prompt: str, model: str, json_mode: bool, max_tokens: int, temperature: float) -> dict:
         gen_cfg: dict = {"temperature": temperature, "maxOutputTokens": max_tokens}
         if json_mode:
             gen_cfg["responseMimeType"] = "application/json"
         if model.startswith("gemini-2.5-flash"):
             # Disable "thinking" on 2.5 Flash: faster replies, far fewer free-tier tokens.
             gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
-        body = {
-            "systemInstruction": {"parts": [{"text": system}]},
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": gen_cfg,
-        }
+        elif model.startswith("gemini-3"):
+            gen_cfg["maxOutputTokens"] = max(max_tokens, 512)  # leave room for thinking before the answer
+        return {"systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": gen_cfg}
+
+    async def _call(self, model: str, body: dict, api_key: Optional[str], timeout: float) -> dict:
         url = f"{API_BASE}/models/{model}:generateContent"
-        started = time.monotonic()
         session: aiohttp.ClientSession = self._session_factory()
         try:
             async with session.post(url, json=body, headers=self._headers(api_key),
@@ -58,15 +66,53 @@ class GeminiProvider(AIProvider):
                 data = await resp.json(content_type=None)
                 if resp.status != 200:
                     raise _error_from(resp.status, data)
+                return data
         except asyncio.TimeoutError as e:
             raise ProviderError("Gemini request timed out", kind="timeout") from e
         except aiohttp.ClientError as e:
             raise ProviderError(f"Network error: {e.__class__.__name__}", kind="unavailable") from e
+
+    async def generate(self, *, system: str, prompt: str, model: Optional[str] = None, json_mode: bool = False,
+                       max_tokens: int = 600, temperature: float = 0.3, timeout: float = 20.0,
+                       api_key: Optional[str] = None, **_: object) -> AIResponse:
+        if not (api_key or self.configured):
+            raise ProviderError("No Gemini API key is set", kind="auth")
+        model = (model or self.default_model).removeprefix("models/")
+        started = time.monotonic()
+        # Google often answers 503 "high demand" for one model while others are fine: try other free models first.
+        candidates = [model] + [m for m in OVERLOAD_FALLBACKS if m != model][:2]
+        last_error: Optional[ProviderError] = None
+        data = None
+        for attempt, use in enumerate(candidates):
+            if attempt and time.monotonic() - started > timeout * 0.8:
+                break
+            body = self._body(system, prompt, use, json_mode, max_tokens, temperature)
+            try:
+                data = await self._call(use, body, api_key, max(2.0, timeout - (time.monotonic() - started)))
+                cand = (data.get("candidates") or [{}])[0]
+                if cand.get("finishReason") == "MAX_TOKENS" and not _text_of(cand).strip():
+                    # Gemini 3 models "think" first: give the answer room and retry once.
+                    body["generationConfig"]["maxOutputTokens"] = max(max_tokens * 4, 2048)
+                    data = await self._call(use, body, api_key, max(2.0, timeout - (time.monotonic() - started)))
+                model = use
+                break
+            except ProviderError as e:
+                last_error = e
+                if attempt == 0 and not (e.kind == "unavailable" or e.status == 503):
+                    raise
+                if attempt and e.kind not in {"unavailable", "model", "quota"} and e.status != 503:
+                    raise
+                if attempt:
+                    log.info("Gemini fallback model %s also unavailable: %s", use, e.message[:120])
+                else:
+                    log.info("Gemini model %s overloaded; trying another free Gemini model", use)
+                data = None
+        if data is None:
+            raise last_error or ProviderError("Gemini unavailable", kind="unavailable")
         latency = int((time.monotonic() - started) * 1000)
         try:
             cand = data["candidates"][0]
-            parts = cand.get("content", {}).get("parts", [])
-            text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+            text = _text_of(cand)
         except (KeyError, IndexError, TypeError):
             block = (data or {}).get("promptFeedback", {}).get("blockReason")
             raise ProviderError(f"Gemini returned no candidates{f' (blocked: {block})' if block else ''}", kind="bad_response")

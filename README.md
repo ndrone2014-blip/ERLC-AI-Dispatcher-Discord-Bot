@@ -212,6 +212,7 @@ Optional: `set PIPER_TEST_VOICE=data\voices\en_US-ryan-medium.onnx` and `set RUN
 | Gemini "quota" errors | Free tier exhausted — the bot switches to the secondary provider/rules; it resets daily. |
 | Officer speech not recognised | See docs/VOICE.md; check *Receive diagnostics* in the Voice panel. |
 | Bot ignores messages in `#dispatch` | Enable **Message Content Intent** in the Developer Portal; check `/settings view` → dispatch channel. |
+| Gemini "high demand" (503) | Google is overloaded on that model. The bot now tries other free Gemini models automatically, then your other providers. Gemini 2.5 models were retired on 16 Oct 2026 — use a 3.x model in `GEMINI_MODEL`. |
 | "Payment required / free credits used up" | That provider's free allowance is used up (e.g. Hugging Face). Failover moves on; add another free key. |
 | An OpenRouter model costs money | Only model IDs ending in `:free` (or `openrouter/free`) are free. `/ai-model` warns you. |
 | Want fewer log messages | `/logs settings` → untick event types, or `/logs route` busy types to their own channel. |

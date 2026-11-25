@@ -261,3 +261,64 @@ async def test_reasoning_model_empty_reply_is_retried():
     r = await p.generate(system="s", prompt="Reply with exactly: DISPATCH ONLINE", max_tokens=40)
     assert r.text == "DISPATCH ONLINE"
     assert sent[0]["max_tokens"] >= 1024 and sent[0].get("reasoning_effort") == "low"
+
+
+class _GemResp:
+    def __init__(self, status, d):
+        self.status, self.d, self.headers = status, d, {}
+
+    async def json(self, content_type=None):
+        return self.d
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+def _gemini_session(behaviour, calls):
+    class Session:
+        def post(self, url, json, headers, timeout):
+            model = url.split("/models/")[1].split(":")[0]
+            calls.append(model)
+            return behaviour(model, json)
+    return Session()
+
+
+@pytest.mark.asyncio
+async def test_gemini_overloaded_model_falls_back_to_another_free_model():
+    from ai.gemini import GeminiProvider
+    busy = {"error": {"code": 503, "status": "UNAVAILABLE",
+                      "message": "This model is currently experiencing high demand. Please try again later."}}
+    ok = {"candidates": [{"content": {"parts": [{"text": "DISPATCH ONLINE"}]}, "finishReason": "STOP"}]}
+    calls = []
+
+    def behaviour(model, body):
+        if model == "gemini-3.8-flash":
+            return _GemResp(503, busy)
+        if model == "gemini-3.1-flash-lite":
+            return _GemResp(404, {"error": {"code": 404, "status": "NOT_FOUND", "message": "not found"}})
+        return _GemResp(200, ok)
+
+    p = GeminiProvider("AIza" + "x" * 35, "gemini-3.8-flash", lambda: _gemini_session(behaviour, calls))
+    r = await p.generate(system="s", prompt="p", max_tokens=40)
+    assert r.text == "DISPATCH ONLINE" and r.model == "gemini-3.5-flash-lite"
+    assert calls == ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]
+
+
+@pytest.mark.asyncio
+async def test_gemini_auth_error_is_not_retried_and_all_busy_reports_unavailable():
+    from ai.gemini import GeminiProvider
+    calls = []
+    bad_key = lambda m, b: _GemResp(400, {"error": {"code": 400, "message": "API key not valid"}})  # noqa: E731
+    p = GeminiProvider("AIza" + "x" * 35, "gemini-3.8-flash", lambda: _gemini_session(bad_key, calls))
+    with pytest.raises(ProviderError) as e:
+        await p.generate(system="s", prompt="p")
+    assert e.value.kind == "auth" and calls == ["gemini-3.8-flash"]
+    calls.clear()
+    busy = lambda m, b: _GemResp(503, {"error": {"code": 503, "message": "high demand"}})  # noqa: E731
+    p = GeminiProvider("AIza" + "x" * 35, "gemini-3.8-flash", lambda: _gemini_session(busy, calls))
+    with pytest.raises(ProviderError) as e:
+        await p.generate(system="s", prompt="p")
+    assert e.value.kind == "unavailable" and len(calls) == 3
