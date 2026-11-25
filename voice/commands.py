@@ -246,6 +246,8 @@ class VoiceCommandProcessor:
     SCREEN_S = 2.5          # the wake word is at the start, so chatter is screened on its first seconds only
     ECHO_WINDOW_S = 1.5     # clips ending this soon after the dispatcher stopped talking are checked for echo
     OFFICER_CACHE_S = 30.0
+    AWAKE_S = 6.0           # after "Dispatch" alone, the speaker's next transmission needs no wake word
+    GO_AHEAD_DELAY_S = 1.2  # ... and if they don't continue, dispatch answers "go ahead"
 
     def __init__(self, core: "DispatchCore", voice: "VoiceManager", stt: "STTEngine", permissions: "PermissionManager",
                  log_callback: Callable[[int, str, str, str], Awaitable[None]], member_lookup):
@@ -263,6 +265,8 @@ class VoiceCommandProcessor:
         self._officers: dict[int, tuple[float, set]] = {}
         self._task: Optional[asyncio.Task] = None
         self._recent: dict[tuple, float] = {}
+        self._awake: dict[tuple, float] = {}
+        self._go_ahead: dict[tuple, object] = {}
         self.dropped = {"queue_full": 0, "per_user": 0, "stale": 0, "echo": 0}
         self.stats = {"transcribed": 0, "no_wake_word": 0, "answered": 0}
         self.last_heard: Optional[str] = None      # last transcript, so you can see what Whisper thought you said
@@ -308,6 +312,7 @@ class VoiceCommandProcessor:
 
     def submit(self, guild_id: int, user_id: int, pcm: bytes) -> None:
         key = (guild_id, user_id)
+        self._go_ahead.pop(key, None)   # they kept talking - no "go ahead" needed
         if self._pending[key] >= self.PER_USER_MAX:
             self.dropped["per_user"] += 1
             log.debug("Speaker %s already has %d clips waiting; dropping one", user_id, self._pending[key])
@@ -345,6 +350,8 @@ class VoiceCommandProcessor:
             screened = require_wake and seconds > self.SCREEN_S and (seconds > 6 or self._queue.qsize() >= 2)
             quick = await self.stt.quick_transcribe(audio, max_seconds=self.SCREEN_S if screened else None)
             woke, rest = strip_wake_word(quick)
+            if woke and not rest and seconds <= self.SCREEN_S + 0.5:
+                return quick, True, "", None      # just "Dispatch" - nothing more to transcribe
             if require_wake and not woke and not maybe_wake_word(quick):
                 log.debug("Ignored (no wake word): %r", quick[:80])
                 return quick, False, rest, None   # clearly not for dispatch: discarded after the cheap pass
@@ -368,17 +375,24 @@ class VoiceCommandProcessor:
             return  # near-silence
         started = time.monotonic()
         statuses = await self.core.units.status_codes(guild_id)
-        text, woke, rest, rule_intent = await self._transcribe(audio, statuses, settings["require_wake_word"])
+        akey = (guild_id, user_id)
+        awake = time.monotonic() - self._awake.get(akey, 0) < self.AWAKE_S
+        need_wake = settings["require_wake_word"] and not awake
+        text, woke, rest, rule_intent = await self._transcribe(audio, statuses, need_wake)
         stt_seconds = time.monotonic() - started
         if not text or len(text) < 3:
             return
+        if awake and not woke:
+            woke = True     # continuing after "Dispatch ... [pause]"
+        if woke and rest:
+            self._awake.pop(akey, None)
         self.stats["transcribed"] += 1
         self.last_heard = text
         if echo_text and settings.get("half_duplex", True) and looks_like_echo(text, echo_text):
             self.dropped["echo"] += 1
             log.debug("Ignored dispatcher echo from %s: %r", user_id, text[:80])
             return
-        if settings["require_wake_word"] and not woke:
+        if need_wake and not woke:
             self.stats["no_wake_word"] += 1
             return
         member = self.member_lookup(guild_id, user_id)
@@ -397,6 +411,13 @@ class VoiceCommandProcessor:
             return  # same transmission picked up twice
         self._recent[key] = now
         speaker = officer["callsign"] if officer and officer.get("callsign") else member.display_name
+        if woke and not rest.strip():
+            # "Dispatch" on its own: wait for the rest; answer "go ahead" only if they don't continue.
+            self._awake[akey] = time.monotonic()
+            token = object()
+            self._go_ahead[akey] = token
+            asyncio.create_task(self._maybe_go_ahead(guild_id, user_id, speaker, text, token))
+            return
         intent = rule_intent
         pending = self.memory.pop_pending(guild_id, user_id)
         if pending is not None and (intent is None or intent.name in {"unclear", "report_incident"}):
@@ -426,6 +447,18 @@ class VoiceCommandProcessor:
         self.memory.add(guild_id, user_id, "Dispatch", reply)
         self.stats["answered"] += 1
         await self._reply(guild_id, speaker, text, reply)
+
+    async def _maybe_go_ahead(self, guild_id: int, user_id: int, speaker: str, transcript: str, token: object) -> None:
+        await asyncio.sleep(self.GO_AHEAD_DELAY_S)
+        key = (guild_id, user_id)
+        if self._go_ahead.get(key) is not token or self._pending[key]:
+            return
+        gs = getattr(self.voice, "gs", None)
+        sink = gs(guild_id).sink if gs else None
+        if sink is not None and user_id in getattr(sink, "_buffers", {}):
+            return   # still talking - their next transmission will be handled
+        self._go_ahead.pop(key, None)
+        await self._reply(guild_id, speaker, transcript, f"{speaker}, go ahead.")
 
     async def _reply(self, guild_id: int, speaker: str, transcript: str, reply: str) -> None:
         await self.core.announcements.enqueue(guild_id, "voice_reply", reply,

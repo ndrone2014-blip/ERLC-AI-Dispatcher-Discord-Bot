@@ -86,6 +86,59 @@ def build_transmission(speech_wav: Path, out_wav: Path, settings: RadioSettings,
     return out_wav
 
 
+DISCORD_SR = 48000
+FRAME_BYTES = 3840   # 20 ms of 48 kHz stereo s16 - one Discord voice frame
+
+
+def _band_limit(audio: np.ndarray, sr: int, low: float = 280.0, high: float = 3600.0) -> np.ndarray:
+    """Radio band-pass in the frequency domain, with soft edges so it doesn't ring."""
+    n = audio.size
+    if n < 64:
+        return audio
+    spec = np.fft.rfft(audio)
+    f = np.fft.rfftfreq(n, 1.0 / sr)
+    gain = np.clip((f - low * 0.7) / (low * 0.3), 0, 1) * np.clip((high * 1.15 - f) / (high * 0.15), 0, 1)
+    return np.fft.irfft(spec * gain, n)
+
+
+def _compress(audio: np.ndarray, drive: float = 2.2) -> np.ndarray:
+    """Gentle radio-style compression: normalise, then soft saturation."""
+    peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+    if peak <= 1e-6:
+        return audio
+    x = audio / peak
+    return np.tanh(x * drive) / np.tanh(drive) * 0.89
+
+
+def render_pcm(speech_wav: Path, settings: RadioSettings, seed: int = 0) -> bytes:
+    """The whole radio transmission rendered straight to Discord PCM (48 kHz stereo s16) in memory.
+    Same sound as the FFmpeg chain, but no FFmpeg process has to start for every reply."""
+    speech, sr = read_wav_mono(speech_wav)
+    parts = [_silence(30, sr)]
+    if settings.open_beep:
+        parts += [open_beep(sr), _silence(settings.pause_ms, sr)]
+    parts.append(speech)
+    parts.append(_silence(settings.pause_ms, sr))
+    if settings.close_beep:
+        parts.append(close_beep(sr))
+    parts.append(_silence(40, sr))
+    audio = np.concatenate(parts)
+    vol = max(0.2, min(2.0, float(settings.volume)))
+    if settings.radio_effect:
+        if settings.static:
+            audio = audio + np.random.default_rng(seed).normal(0, 0.004, size=audio.shape)
+        audio = _compress(_band_limit(audio, sr)) * vol * 1.15 * 0.6
+    else:
+        audio = audio * vol
+    if sr != DISCORD_SR:
+        n_out = int(round(audio.size * DISCORD_SR / sr))
+        audio = np.interp(np.linspace(0, audio.size - 1, n_out), np.arange(audio.size), audio)
+    pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+    stereo = np.repeat(pcm, 2).tobytes()
+    pad = (-len(stereo)) % FRAME_BYTES
+    return stereo + b"\x00" * pad
+
+
 def ffmpeg_filter(settings: RadioSettings) -> str:
     vol = max(0.2, min(2.0, float(settings.volume)))
     if not settings.radio_effect:

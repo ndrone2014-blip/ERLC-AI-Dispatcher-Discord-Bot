@@ -33,7 +33,7 @@ class STTEngine:
         self.quick_model_name = quick_model if quick_model and quick_model != model_name else None
         self.device = device
         self.compute_type = compute_type
-        self.cpu_threads = max(1, min(4, os.cpu_count() or 4))
+        self.cpu_threads = max(1, min(8, (os.cpu_count() or 4) - 1))   # leave one core for Discord/audio
         self._models: dict[str, object] = {}
         self._lock = threading.Lock()
         self.last_error: Optional[str] = None

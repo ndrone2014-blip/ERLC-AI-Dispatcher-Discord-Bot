@@ -15,7 +15,9 @@ from typing import Optional
 from core.events import Event, EventBus
 from dispatch.announcements import ANNOUNCEMENT_UPDATED, AnnouncementService
 
-from .audio_processing import build_transmission, ffmpeg_filter
+from collections import OrderedDict
+
+from .audio_processing import build_transmission, ffmpeg_filter, render_pcm
 from .connection import VoiceManager
 from .text_to_speech import TTSEngine, TTSError
 
@@ -33,6 +35,7 @@ class AnnouncementPlayer:
         self._wake: dict[int, asyncio.Event] = {}
         self._tasks: dict[int, asyncio.Task] = {}
         self._preempted: set[int] = set()
+        self._pcm_cache: "OrderedDict[tuple, bytes]" = OrderedDict()   # finished transmissions, ready to play
         bus.subscribe(ANNOUNCEMENT_UPDATED, self._on_update)
 
     def start_guild(self, guild_id: int) -> None:
@@ -106,15 +109,33 @@ class AnnouncementPlayer:
         await self.announcements.mark(ann["id"], "playing")
         speech = tx = None
         try:
-            speech = await self.tts.synthesize(ann["text"], settings.get("voice"), float(settings.get("speed", 1.0)))
             radio = await self.voice.radio_settings(guild_id)
-            tx = speech.with_name(speech.stem + "-tx.wav")
-            await asyncio.to_thread(build_transmission, speech, tx, radio, ann["id"])
+            key = (ann["text"], settings.get("voice"), float(settings.get("speed", 1.0)), radio.radio_effect,
+                   radio.open_beep, radio.close_beep, radio.static, float(radio.volume), radio.pause_ms)
+            pcm = self._pcm_cache.get(key)
+            if pcm is None:
+                speech = await self.tts.synthesize(ann["text"], settings.get("voice"), float(settings.get("speed", 1.0)))
+                try:
+                    pcm = await asyncio.to_thread(render_pcm, speech, radio, ann["id"])
+                    self._pcm_cache[key] = pcm
+                    while len(self._pcm_cache) > 100:
+                        self._pcm_cache.popitem(last=False)
+                except Exception:
+                    log.warning("In-memory radio render failed; using FFmpeg", exc_info=True)
+                    pcm = None
+            else:
+                self._pcm_cache.move_to_end(key)
+            if pcm is None:
+                tx = speech.with_name(speech.stem + "-tx.wav")
+                await asyncio.to_thread(build_transmission, speech, tx, radio, ann["id"])
             g.current_announcement = ann
             g.last_spoken_text = ann["text"]
             g.speaking = True
             await self.bus.publish("voice.status", guild_id)
-            await self.voice.play_file(guild_id, str(tx), ffmpeg_filter(radio))
+            if pcm is not None:
+                await self.voice.play_pcm(guild_id, pcm)
+            else:
+                await self.voice.play_file(guild_id, str(tx), ffmpeg_filter(radio))
             if ann["id"] in self._preempted:
                 self._preempted.discard(ann["id"])
                 await self.announcements.mark(ann["id"], "queued", "pre-empted by critical announcement")

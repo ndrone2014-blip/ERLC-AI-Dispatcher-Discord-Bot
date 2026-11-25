@@ -13,6 +13,11 @@
 - **Faster replies.** Repeated dispatcher lines are cached and start playing instantly; the dispatcher voice is
   loaded at startup instead of on the first reply; end of a transmission is detected sooner (0.5 s of silence);
   the fast speech pass skips an extra voice-detection step; a quiet channel never needs two passes per command.
+- **Fastest replies yet.** Replies are rendered with the radio effect in memory and played directly, so no FFmpeg
+  program has to start for every reply; finished transmissions are cached, so repeated lines play instantly.
+  End of a transmission is detected after 0.4 s of silence, and speech-to-text uses more CPU cores.
+- **Talk like a real radio.** Say "Dispatch" and pause - the next thing you say is taken as the command (no second
+  "Dispatch" needed). If you say nothing more, dispatch answers "*callsign*, go ahead."
 - **Clearer diagnostics.** `/voice diagnose` and the Voice panel show the speech queue: heard, answered, ignored
   (no wake word), dropped (too busy), echo ignored and the last thing heard.
 - **Listening can't silently die** from one bad voice packet any more (busy calls produce more of them).

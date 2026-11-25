@@ -102,3 +102,26 @@ async def test_echo_clip_is_ignored(core):
     loud = (np.ones(48000 * 2 * 2, dtype=np.int16) * 3000).tobytes()   # 1 s of non-silent audio
     await p._handle(GUILD, 5, loud, echo_text="Dispatch copies loud and clear, go ahead.")
     assert replies == [] and p.dropped["echo"] == 1
+
+
+def test_radio_transmission_renders_to_discord_pcm_in_memory(tmp_path):
+    from voice.audio_processing import FRAME_BYTES, RadioSettings, render_pcm, write_wav_mono
+    sr = 22050
+    t = np.arange(sr) / sr
+    wav = tmp_path / "speech.wav"
+    write_wav_mono(wav, 0.5 * np.sin(2 * np.pi * 440 * t), sr)
+    for fx in (True, False):
+        pcm = render_pcm(wav, RadioSettings(radio_effect=fx))
+        assert len(pcm) % FRAME_BYTES == 0
+        assert 1.0 < len(pcm) / (48000 * 4) < 2.0          # ~1 s of speech plus beeps, 48 kHz stereo s16
+        assert np.abs(np.frombuffer(pcm, np.int16)).max() > 3000
+
+
+@pytest.mark.asyncio
+async def test_wake_word_alone_then_command_is_answered(core):
+    stt = FakeSTT()
+    p = processor(core, stt)
+    p.GO_AHEAD_DELAY_S = 0.05
+    stt.quick_text = "Dispatch."
+    text, woke, rest, intent = await p._transcribe(np.zeros(16000, dtype=np.float32), [], True)
+    assert woke and rest == "" and intent is None and stt.windows == [None]   # no slow second pass

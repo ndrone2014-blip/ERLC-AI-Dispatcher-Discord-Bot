@@ -289,6 +289,15 @@ class VoiceManager:
 
     # ------------------------------------------------------------------ playback
     async def play_file(self, guild_id: int, path: str, filter_chain: str, timeout: float = 120) -> None:
+        await self._play_source(guild_id, lambda: discord.FFmpegPCMAudio(
+            path, executable=self.ffmpeg_path, options=f'-af "{filter_chain}"'), timeout)
+
+    async def play_pcm(self, guild_id: int, pcm: bytes, timeout: float = 120) -> None:
+        """Play ready-made 48 kHz stereo PCM from memory (no FFmpeg start-up delay)."""
+        import io
+        await self._play_source(guild_id, lambda: discord.PCMAudio(io.BytesIO(pcm)), timeout)
+
+    async def _play_source(self, guild_id: int, make_source, timeout: float = 120) -> None:
         vc = self.voice_client(guild_id)
         if vc is None:
             raise ConnectionError("Not connected to voice")
@@ -313,7 +322,7 @@ class VoiceManager:
                 self.bot.loop.call_soon_threadsafe(
                     lambda: done.set_exception(err) if err else done.set_result(None))
 
-        source = discord.FFmpegPCMAudio(path, executable=self.ffmpeg_path, options=f'-af "{filter_chain}"')
+        source = make_source()
         if vc.is_playing():
             vc.stop()
         vc.play(source, after=after)
