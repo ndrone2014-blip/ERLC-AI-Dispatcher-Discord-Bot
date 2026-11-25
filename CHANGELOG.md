@@ -1,5 +1,17 @@
 # Changelog
 
+## 🎙️ Busy voice channel fix (2026-11-25)
+- **Dispatch keeps answering in crowded calls.** Speech-to-text used to handle every clip from everyone in one line,
+  so with many people talking, officers' "Dispatch, …" clips waited too long and were silently dropped.
+  - Registered officers are now transcribed before everyone else.
+  - One person talking non-stop can only have 3 clips waiting, so they can't block the channel.
+  - Chatter is screened on its first 2.5 s only (the wake word is at the start), so the backlog clears faster.
+  - Bigger queue (60 clips) and a slightly longer wait before a clip counts as outdated (10 s).
+- **Talking over the dispatcher works.** Listening no longer switches off while the dispatcher speaks (in a busy
+  channel it is speaking a lot). The *Half-duplex (echo guard)* setting now only ignores clips that repeat what the
+  dispatcher just said.
+- **Listening can't silently die** from one bad voice packet any more (busy calls produce more of them).
+
 ## 🦃 Pulse Dispatch | ERLC — Thanksgiving Update · v3.0.0 (2026-11-26)
 
 A major upgrade focused on speed, understanding, free AI, professional logging and a realistic dispatch experience.

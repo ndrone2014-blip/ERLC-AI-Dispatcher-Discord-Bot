@@ -1,0 +1,99 @@
+"""Crowded voice channels: officers must still get answers when lots of people are talking."""
+import asyncio
+import time
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from tests.conftest import GUILD
+from voice.commands import VoiceCommandProcessor, looks_like_echo
+
+
+class FakeSTT:
+    has_quick_model = True
+
+    def __init__(self, quick_text="", full_text=""):
+        self.quick_text, self.full_text = quick_text, full_text
+        self.windows = []
+
+    async def quick_transcribe(self, audio, max_seconds=None):
+        self.windows.append(max_seconds)
+        return self.quick_text
+
+    async def transcribe(self, audio):
+        return self.full_text
+
+    def available(self):
+        return False
+
+
+def processor(core, stt=None):
+    voice = SimpleNamespace(settings=lambda gid: asyncio.sleep(0, {"listening": True, "require_wake_word": True,
+                                                                    "half_duplex": True}))
+    return VoiceCommandProcessor(core, voice, stt or FakeSTT(), None, None, None)
+
+
+def test_echo_of_dispatcher_is_recognised():
+    spoken = "1A-12, copy, attached to incident 104, Main Street bank."
+    assert looks_like_echo("1A-12 copy attached to incident 104 Main Street bank", spoken)
+    assert looks_like_echo("copy attached to incident 104", spoken)
+
+
+def test_officer_talking_over_dispatcher_is_not_echo():
+    spoken = "Attention all units, new 911 call, vehicle crash at the gas station."
+    assert not looks_like_echo("Dispatch, show me 10-8", spoken)
+    assert not looks_like_echo("Dispatch, attach me to the call", spoken)
+    assert not looks_like_echo("ok", spoken)
+
+
+@pytest.mark.asyncio
+async def test_one_speaker_cannot_fill_the_queue(core):
+    p = processor(core)
+    for _ in range(10):
+        p.submit(GUILD, 1, b"x")
+    p.submit(GUILD, 2, b"x")
+    assert p._queue.qsize() == p.PER_USER_MAX + 1
+    assert p.dropped["per_user"] == 10 - p.PER_USER_MAX
+
+
+@pytest.mark.asyncio
+async def test_registered_officers_are_transcribed_first(core):
+    p = processor(core)
+    p._officers[GUILD] = (time.monotonic(), {7})
+    p.submit(GUILD, 1, b"civ")
+    p.submit(GUILD, 2, b"civ")
+    p.submit(GUILD, 7, b"officer")
+    handled = []
+
+    async def fake_handle(gid, uid, pcm, echo_text=None):
+        handled.append(uid)
+
+    p._handle = fake_handle
+    task = asyncio.create_task(p._worker())
+    await asyncio.sleep(0.05)
+    task.cancel()
+    assert handled == [7, 1, 2]
+
+
+@pytest.mark.asyncio
+async def test_long_chatter_only_screens_the_start(core):
+    stt = FakeSTT("so anyway we were driving down the road")
+    p = processor(core, stt)
+    await p._transcribe(np.zeros(16000 * 5, dtype=np.float32), [], True)
+    assert stt.windows == [p.SCREEN_S]
+
+
+@pytest.mark.asyncio
+async def test_echo_clip_is_ignored(core):
+    replies = []
+    p = processor(core, FakeSTT("Dispatch copies loud and clear, go ahead.", "Dispatch copies loud and clear, go ahead."))
+    p.member_lookup = lambda gid, uid: SimpleNamespace(bot=False, display_name="Officer")
+
+    async def fake_reply(*a):
+        replies.append(a)
+
+    p._reply = fake_reply
+    loud = (np.ones(48000 * 2 * 2, dtype=np.int16) * 3000).tobytes()   # 1 s of non-silent audio
+    await p._handle(GUILD, 5, loud, echo_text="Dispatch copies loud and clear, go ahead.")
+    assert replies == [] and p.dropped["echo"] == 1

@@ -6,9 +6,12 @@ dispatcher never claims an assignment that did not happen.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import re
 import time
+from collections import defaultdict
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
 from ai.conversation import (ConversationMemory, Intent, answer_question, maybe_wake_word, parse_rules, parse_with_ai,
@@ -221,7 +224,29 @@ async def execute_report(core: "DispatchCore", guild_id: int, officer: Optional[
     return phrases.call_received_reply(inc, style=style, guild_id=guild_id)
 
 
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def looks_like_echo(heard: str, spoken: str) -> bool:
+    """True when a transcript is (mostly) the dispatcher's own last transmission picked up by
+    someone's microphone. Officers talking over the dispatcher say different words, so they pass."""
+    h = _WORD.findall((heard or "").lower())
+    sp = _WORD.findall((spoken or "").lower())
+    if len(h) < 2 or not sp:
+        return False
+    spoken_set = set(sp)
+    overlap = sum(1 for w in h if w in spoken_set) / len(h)
+    return overlap >= 0.7 or SequenceMatcher(None, " ".join(h), " ".join(sp)).ratio() >= 0.75
+
+
 class VoiceCommandProcessor:
+    STALE_AFTER_S = 10.0    # a clip waiting longer than this is outdated - drop it instead of answering late
+    QUEUE_MAX = 60          # clips waiting for speech-to-text (all speakers together)
+    PER_USER_MAX = 3        # clips waiting per speaker - one person talking non-stop can't block everyone else
+    SCREEN_S = 2.5          # the wake word is at the start, so chatter is screened on its first seconds only
+    ECHO_WINDOW_S = 1.5     # clips ending this soon after the dispatcher stopped talking are checked for echo
+    OFFICER_CACHE_S = 30.0
+
     def __init__(self, core: "DispatchCore", voice: "VoiceManager", stt: "STTEngine", permissions: "PermissionManager",
                  log_callback: Callable[[int, str, str, str], Awaitable[None]], member_lookup):
         self.core = core
@@ -231,11 +256,14 @@ class VoiceCommandProcessor:
         self.log_callback = log_callback      # (guild_id, speaker_label, transcript, reply)
         self.member_lookup = member_lookup    # (guild_id, user_id) -> Member | None
         self.memory = ConversationMemory()
-        self._queue: asyncio.Queue = asyncio.Queue(maxsize=20)
+        # Registered officers are transcribed first, then everyone else; oldest first within each group.
+        self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue(maxsize=self.QUEUE_MAX)
+        self._seq = itertools.count()
+        self._pending: dict[tuple, int] = defaultdict(int)
+        self._officers: dict[int, tuple[float, set]] = {}
         self._task: Optional[asyncio.Task] = None
         self._recent: dict[tuple, float] = {}
-
-    STALE_AFTER_S = 8.0     # a clip waiting longer than this is outdated - drop it instead of answering late
+        self.dropped = {"queue_full": 0, "per_user": 0, "stale": 0, "echo": 0}
 
     def start(self) -> None:
         if self._task is None or self._task.done():
@@ -243,21 +271,57 @@ class VoiceCommandProcessor:
             if self.stt.available():
                 asyncio.create_task(self.stt.warmup())   # load Whisper now, not on the first command
 
-    def submit(self, guild_id: int, user_id: int, pcm: bytes) -> None:
+    def _is_officer(self, guild_id: int, user_id: int) -> bool:
+        cached = self._officers.get(guild_id)
+        if cached is None or time.monotonic() - cached[0] > self.OFFICER_CACHE_S:
+            asyncio.ensure_future(self._refresh_officers(guild_id))
+        return bool(cached and user_id in cached[1])
+
+    async def _refresh_officers(self, guild_id: int) -> None:
+        self._officers[guild_id] = (time.monotonic(), self._officers.get(guild_id, (0, set()))[1])
         try:
-            self._queue.put_nowait((guild_id, user_id, pcm, time.monotonic()))
+            rows = await self.core.db.fetchall(
+                "SELECT discord_id FROM officers WHERE guild_id = ? AND active = 1", (guild_id,))
+            self._officers[guild_id] = (time.monotonic(), {int(r["discord_id"]) for r in rows})
+        except Exception:
+            log.debug("Officer cache refresh failed", exc_info=True)
+
+    def _echo_context(self, guild_id: int) -> Optional[str]:
+        gs = getattr(self.voice, "gs", None)
+        if gs is None:
+            return None
+        g = gs(guild_id)
+        if g.speaking or time.monotonic() - g.last_spoken_end < self.ECHO_WINDOW_S:
+            return g.last_spoken_text or None
+        return None
+
+    def submit(self, guild_id: int, user_id: int, pcm: bytes) -> None:
+        key = (guild_id, user_id)
+        if self._pending[key] >= self.PER_USER_MAX:
+            self.dropped["per_user"] += 1
+            log.debug("Speaker %s already has %d clips waiting; dropping one", user_id, self._pending[key])
+            return
+        tier = 0 if self._is_officer(guild_id, user_id) else 1
+        item = (tier, next(self._seq), guild_id, user_id, pcm, time.monotonic(), self._echo_context(guild_id))
+        try:
+            self._queue.put_nowait(item)
+            self._pending[key] += 1
         except asyncio.QueueFull:
+            self.dropped["queue_full"] += 1
             log.warning("Voice command queue full; dropping an utterance from %s", user_id)
 
     async def _worker(self) -> None:
         while True:
-            guild_id, user_id, pcm, received = await self._queue.get()
+            _tier, _seq, guild_id, user_id, pcm, received, echo_text = await self._queue.get()
+            key = (guild_id, user_id)
+            self._pending[key] = max(0, self._pending[key] - 1)
             age = time.monotonic() - received
             if age > self.STALE_AFTER_S:
-                log.debug("Dropping %.1fs-old voice clip from %s (backlog)", age, user_id)
+                self.dropped["stale"] += 1
+                log.info("Dropping %.1fs-old voice clip from %s (speech-to-text backlog)", age, user_id)
                 continue
             try:
-                await self._handle(guild_id, user_id, pcm)
+                await self._handle(guild_id, user_id, pcm, echo_text)
             except Exception:
                 log.exception("Voice command failed")
 
@@ -265,20 +329,24 @@ class VoiceCommandProcessor:
         """Cheap quick pass first; the accurate model only when needed. Returns (text, woke, rest, intent)."""
         seconds = len(audio) / 16000
         if self.stt.has_quick_model:
-            quick = await self.stt.quick_transcribe(audio, max_seconds=None if seconds <= 6 else 2.5)
+            screened = require_wake and seconds > self.SCREEN_S
+            quick = await self.stt.quick_transcribe(audio, max_seconds=self.SCREEN_S if screened else None)
             woke, rest = strip_wake_word(quick)
             if require_wake and not woke and not maybe_wake_word(quick):
                 log.debug("Ignored (no wake word): %r", quick[:80])
                 return quick, False, rest, None   # clearly not for dispatch: discarded after the cheap pass
             if seconds <= 6 and woke:
-                intent = parse_rules(rest, statuses)
+                if screened:   # only the start was transcribed - get the whole (short) command
+                    quick = await self.stt.quick_transcribe(audio)
+                    woke, rest = strip_wake_word(quick)
+                intent = parse_rules(rest, statuses) if woke else None
                 if intent is not None and intent.clarification is None and intent.name != "unclear":
                     return quick, woke, rest, intent  # clear command - no need for the slower model
         text = await self.stt.transcribe(audio)
         woke, rest = strip_wake_word(text)
         return text, woke, rest, parse_rules(rest, statuses) if woke or not require_wake else None
 
-    async def _handle(self, guild_id: int, user_id: int, pcm: bytes) -> None:
+    async def _handle(self, guild_id: int, user_id: int, pcm: bytes, echo_text: Optional[str] = None) -> None:
         settings = await self.voice.settings(guild_id)
         if not settings["listening"]:
             return
@@ -290,6 +358,10 @@ class VoiceCommandProcessor:
         text, woke, rest, rule_intent = await self._transcribe(audio, statuses, settings["require_wake_word"])
         stt_seconds = time.monotonic() - started
         if not text or len(text) < 3:
+            return
+        if echo_text and settings.get("half_duplex", True) and looks_like_echo(text, echo_text):
+            self.dropped["echo"] += 1
+            log.debug("Ignored dispatcher echo from %s: %r", user_id, text[:80])
             return
         if settings["require_wake_word"] and not woke:
             return

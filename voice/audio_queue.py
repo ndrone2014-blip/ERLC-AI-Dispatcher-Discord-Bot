@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
 from core.events import Event, EventBus
@@ -110,6 +111,7 @@ class AnnouncementPlayer:
             tx = speech.with_name(speech.stem + "-tx.wav")
             await asyncio.to_thread(build_transmission, speech, tx, radio, ann["id"])
             g.current_announcement = ann
+            g.last_spoken_text = ann["text"]
             g.speaking = True
             await self.bus.publish("voice.status", guild_id)
             await self.voice.play_file(guild_id, str(tx), ffmpeg_filter(radio))
@@ -128,6 +130,8 @@ class AnnouncementPlayer:
             await self.announcements.mark(ann["id"], "failed", str(e)[:300])
             await asyncio.sleep(1)
         finally:
+            if g.speaking:
+                g.last_spoken_end = time.monotonic()
             g.speaking = False
             g.current_announcement = None
             await self.bus.publish("voice.status", guild_id)

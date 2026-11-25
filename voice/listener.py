@@ -100,6 +100,14 @@ class DispatchSink(_SinkBase):  # type: ignore[misc]
         return True  # we must DAVE-decrypt before decoding
 
     def write(self, user, data) -> None:
+        # This runs on voice-recv's packet thread: an exception escaping here kills that thread and
+        # the dispatcher goes deaf for everyone. Never let one bad packet (common in busy calls) do that.
+        try:
+            self._write(user, data)
+        except Exception as e:  # pragma: no cover - defensive
+            self.stats.last_error = f"Packet handling failed: {e}"
+
+    def _write(self, user, data) -> None:
         self.stats.packets += 1
         if user is None:
             return

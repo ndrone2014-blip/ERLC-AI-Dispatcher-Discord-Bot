@@ -157,12 +157,12 @@ async def test_stale_clips_are_dropped(core):
     handled = []
     p = processor(core, FakeSTT("", ""))
 
-    async def fake_handle(gid, uid, pcm):
+    async def fake_handle(gid, uid, pcm, echo_text=None):
         handled.append(uid)
 
     p._handle = fake_handle
-    p._queue.put_nowait((GUILD, 1, b"", time.monotonic() - 30))   # waited 30 s -> outdated
-    p._queue.put_nowait((GUILD, 2, b"", time.monotonic()))
+    p._queue.put_nowait((1, 0, GUILD, 1, b"", time.monotonic() - 30, None))   # waited 30 s -> outdated
+    p._queue.put_nowait((1, 1, GUILD, 2, b"", time.monotonic(), None))
     task = asyncio.create_task(p._worker())
     await asyncio.sleep(0.05)
     task.cancel()

@@ -77,6 +77,8 @@ class GuildVoice:
     reconnect_failures: int = 0
     last_error: Optional[str] = None
     last_playback: Optional[str] = None
+    last_spoken_text: str = ""        # what the dispatcher said last (for the echo filter)
+    last_spoken_end: float = 0.0      # time.monotonic() when it finished saying it
     connecting_since: Optional[float] = None
     receive_recoveries: int = 0
     rejoins: list = field(default_factory=list)
@@ -260,8 +262,10 @@ class VoiceManager:
                 self.bot.loop.call_soon_threadsafe(self.on_utterance, guild_id, user_id, pcm)
 
         def paused() -> bool:
-            # Half-duplex echo prevention: ignore input while the dispatcher is transmitting.
-            return g.speaking and self._half_duplex_cache.get(guild_id, True)
+            # Never stop listening while the dispatcher talks: in a busy channel it is talking a lot, and
+            # everything officers said during that time used to be thrown away. Echo of the dispatcher's own
+            # voice is now filtered after transcription instead (VoiceCommandProcessor, half_duplex setting).
+            return False
 
         def dave_session():
             conn = getattr(vc, "_connection", None)
