@@ -37,6 +37,7 @@ HELP_SECTIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
         ("/attach · /detach", "Attach yourself to a call"),
     ]),
     "admin": ("🛠️ Administration", [
+        ("/setup-guide", "Step-by-step setup: dashboards, ER:LC API key, AI, roles, logs"),
         ("/setup run", "Dispatch Only, Dispatch + Logs, Full or Custom"),
         ("/settings view|…", "Response style, dispatch channel, categories, embeds, ER:LC key…"),
         ("/dashboard status|enable|disable|preset", "Optional dashboards"),
@@ -66,7 +67,7 @@ def help_embed(section: str, look: E.Look) -> discord.Embed:
             "Talk to dispatch naturally: *“we have a vehicle crash at the bank”*, *“need EMS at the gas station”*, "
             "*“show me 10-8”*. Use the dispatch channel, `/dispatch ask`, or the 📻 radio.\n\n"
             "In-game 911 calls arrive automatically through the official ER:LC API.\n"
-            "Pick a category below for every command."))
+            "New here? Run **`/setup-guide`**. Pick a category below for every command."))
         for key, (title, items) in HELP_SECTIONS.items():
             e.add_field(name=title, value=f"{len(items)} commands", inline=True)
         e.add_field(name="Roleplay only", value="Pulse Dispatch is part of a roleplay community — not a real emergency service.",

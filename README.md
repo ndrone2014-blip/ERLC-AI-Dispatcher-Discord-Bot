@@ -79,6 +79,9 @@ The **ER:LC server key is best entered from Discord** (step 6). It is then store
 
 ## 6. First-time setup in Discord
 
+Run **`/setup-guide`** in Discord for an interactive version of these steps (with buttons that open the ER:LC key form
+and the dashboard picker).
+
 1. Run **`/setup run`** (needs *Manage Server*) and pick what your server needs — **dashboards are optional**:
 
    | Preset | What you get |
@@ -143,7 +146,7 @@ See **[docs/VOICE.md](docs/VOICE.md)** for an important note about Discord's end
 |---|---|
 | **Dispatch** | `/dispatch ask\|notice\|skip` · `/911` · `/calls` · `/incident view\|create\|note\|priority\|close\|history` · `/incident-view` · `/incident-update` · `/incident-close` · `/priority` · `/bolo create\|list\|clear` · `/broadcast` · `/report file\|status\|view\|attach` · `/test call` |
 | **Units** | `/unit-register` · `/unit-status` · `/unit-assign` · `/unit-unassign` · `/unit-list` · `/available-units` · `/backup` · `/attach` · `/detach` · `/unit register\|status\|remove` · `/status` |
-| **Administration** | `/setup run\|repair\|panel` · `/settings view\|response-style\|agency-name\|dispatch-channel\|follow-up-questions\|duplicates\|approval-threshold\|embed\|callsign-format\|category-add\|category-remove\|erlc-key` · `/dashboard status\|enable\|disable\|preset` · `/logs settings\|channel\|create\|toggle\|route\|view` · `/departments list\|add\|remove\|status-add\|status-remove` · `/permissions view\|map\|set` · `/reset-settings` |
+| **Administration** | `/setup-guide` · `/setup run\|repair\|panel` · `/settings view\|response-style\|agency-name\|dispatch-channel\|follow-up-questions\|duplicates\|approval-threshold\|embed\|callsign-format\|category-add\|category-remove\|erlc-key` · `/dashboard status\|enable\|disable\|preset` · `/logs settings\|channel\|create\|toggle\|route\|view` · `/departments list\|add\|remove\|status-add\|status-remove` · `/permissions view\|map\|set` · `/reset-settings` |
 | **AI** | `/ai-status` · `/ai-provider list\|guide\|key\|remove-key\|prefer\|mode\|enable` · `/ai-test` · `/ai-model` · `/ai-failover` · `/ai status\|test\|primary` |
 | **Information** | `/help` · `/about` · `/statistics` · `/stats` · `/ping` · `/version` · `/erlc` · `/voice join\|leave\|listen\|mute\|test\|diagnose` |
 

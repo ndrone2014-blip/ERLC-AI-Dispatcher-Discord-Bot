@@ -52,7 +52,7 @@ PANEL_MODULES = {
 
 COGS = ["bot.commands.setup", "bot.commands.dispatch", "bot.commands.units", "bot.commands.records", "bot.commands.system",
         "bot.commands.pulse_dispatch", "bot.commands.pulse_units", "bot.commands.pulse_admin", "bot.commands.pulse_ai",
-        "bot.commands.pulse_info"]
+        "bot.commands.pulse_info", "bot.commands.pulse_guide"]
 
 
 class DispatchBot(commands.Bot):
