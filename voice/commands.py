@@ -264,6 +264,17 @@ class VoiceCommandProcessor:
         self._task: Optional[asyncio.Task] = None
         self._recent: dict[tuple, float] = {}
         self.dropped = {"queue_full": 0, "per_user": 0, "stale": 0, "echo": 0}
+        self.stats = {"transcribed": 0, "no_wake_word": 0, "answered": 0}
+        self.last_heard: Optional[str] = None      # last transcript, so you can see what Whisper thought you said
+
+    def diagnostics_text(self) -> str:
+        d, st = self.dropped, self.stats
+        busy = d["queue_full"] + d["per_user"] + d["stale"]
+        text = (f"waiting {self._queue.qsize()} · heard {st['transcribed']} · answered {st['answered']} · "
+                f"no wake word {st['no_wake_word']} · dropped (too busy) {busy} · echo ignored {d['echo']}")
+        if self.last_heard:
+            text += f"\nLast heard: “{self.last_heard[:100]}”"
+        return text
 
     def start(self) -> None:
         if self._task is None or self._task.done():
@@ -359,11 +370,14 @@ class VoiceCommandProcessor:
         stt_seconds = time.monotonic() - started
         if not text or len(text) < 3:
             return
+        self.stats["transcribed"] += 1
+        self.last_heard = text
         if echo_text and settings.get("half_duplex", True) and looks_like_echo(text, echo_text):
             self.dropped["echo"] += 1
             log.debug("Ignored dispatcher echo from %s: %r", user_id, text[:80])
             return
         if settings["require_wake_word"] and not woke:
+            self.stats["no_wake_word"] += 1
             return
         member = self.member_lookup(guild_id, user_id)
         if member is None or getattr(member, "bot", False):
@@ -407,6 +421,7 @@ class VoiceCommandProcessor:
                  speaker, text, intent.name, intent.args, intent.source, reply, stt_seconds, time.monotonic() - started)
         self.memory.add(guild_id, user_id, speaker, rest)
         self.memory.add(guild_id, user_id, "Dispatch", reply)
+        self.stats["answered"] += 1
         await self._reply(guild_id, speaker, text, reply)
 
     async def _reply(self, guild_id: int, speaker: str, transcript: str, reply: str) -> None:

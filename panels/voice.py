@@ -46,6 +46,8 @@ async def build(bot: "DispatchBot", guild_id: int):
                     value=(f"packets {st.packets} · DAVE decrypted {st.dave_decrypted} · plain {st.passthrough} · "
                            f"decrypt failures {st.decrypt_failures} · utterances {st.utterances}"
                            + (f"\nLast error: {truncate(st.last_error, 120)}" if st.last_error else "")), inline=False)
+    if getattr(bot, "voice_commands", None) is not None:
+        e.add_field(name="Speech queue", value=bot.voice_commands.diagnostics_text(), inline=False)
     if vc:
         d = bot.voice.dave_state(vc)
         e.add_field(name="Voice encryption (DAVE)",

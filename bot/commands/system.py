@@ -94,6 +94,13 @@ class SystemCog(commands.Cog):
         queued = await bot.core.announcements.pending_count(interaction.guild_id)
         lines.append(f"**Queued announcements:** {queued}")
         lines.append(f"**Last playback:** {d['last_playback'] or 'none yet'}")
+        lines.append(f"**Listening:** {'on' if s['listening'] else 'OFF'} · **Wake word required:** {s['require_wake_word']}")
+        g = bot.voice.gs(interaction.guild_id)
+        if g.sink:
+            st = g.sink.stats
+            lines.append(f"**Receiving:** packets {st.packets} · utterances {st.utterances} · decrypt failures {st.decrypt_failures}")
+        if bot.voice_commands is not None:
+            lines.append(f"**Speech queue:** {bot.voice_commands.diagnostics_text()}")
         await reply(interaction, "\n".join(lines))
 
     @voice.command(name="mute", description="Mute or unmute dispatcher speech (listening is unaffected)")
