@@ -385,7 +385,8 @@ class VoiceCommandProcessor:
         from security.permissions import Actor
         if not await self.permissions.has(guild_id, Actor.from_member(member), "voice.command"):
             await self._reply(guild_id, member.display_name, text,
-                              "Dispatch only accepts radio traffic from registered personnel.")
+                              "Dispatch can't take radio traffic from you yet. Your Discord role is not set up as an officer role. "
+                              "Ask an admin to run slash permissions map.")
             return
         officer = await self.core.units.officer_by_discord(guild_id, user_id)
         key = (guild_id, user_id, rest.lower())
