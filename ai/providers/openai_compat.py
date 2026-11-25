@@ -15,6 +15,9 @@ import aiohttp
 
 from .base import AIProvider, AIResponse, ProviderError
 
+# Models that "think" before answering: their hidden reasoning uses up max_tokens, so give them room and keep effort low.
+_REASONING = re.compile(r"gpt-oss|deepseek-r1|qwq|\bo[134]\b|o[134]-mini|reasoning|thinking|magistral|qwen3", re.I)
+
 _MODEL_GONE = re.compile(r"model.{0,40}(not found|does not exist|not exist|decommissioned|deprecated|no longer|unknown|"
                          r"not available|invalid model|is not supported)|no endpoints found|unknown model", re.I)
 
@@ -76,6 +79,11 @@ class OpenAICompatProvider(AIProvider):
         }
         if json_mode and not self._no_json_mode:
             body["response_format"] = {"type": "json_object"}
+        reasoning = bool(_REASONING.search(body["model"]))
+        if reasoning:
+            body["max_tokens"] = max(max_tokens, 1024)
+            if "gpt-oss" in body["model"] and self.name in {"groq", "cerebras", "openrouter", "huggingface", "nvidia"}:
+                body["reasoning_effort"] = "low"
         started = time.monotonic()
         try:
             data, status, headers = await self._post(f"{url}/chat/completions", body, api_key, timeout)
@@ -90,9 +98,25 @@ class OpenAICompatProvider(AIProvider):
         if status != 200:
             raise _error_from(status, data, headers)
         try:
-            text = data["choices"][0]["message"]["content"] or ""
+            choice = data["choices"][0]
+            text = choice["message"]["content"] or ""
         except (KeyError, IndexError, TypeError):
             raise ProviderError("Unexpected response shape", kind="bad_response")
+        if not (text if isinstance(text, str) else text) and choice.get("finish_reason") == "length":
+            # The model spent its whole allowance thinking: retry once with much more room.
+            body["max_tokens"] = max(int(body["max_tokens"]) * 4, 2048)
+            try:
+                data, status, headers = await self._post(f"{url}/chat/completions", body, api_key, timeout)
+            except asyncio.TimeoutError as e:
+                raise ProviderError("Request timed out", kind="timeout") from e
+            except aiohttp.ClientError as e:
+                raise ProviderError(f"Network error: {e.__class__.__name__}", kind="unavailable") from e
+            if status != 200:
+                raise _error_from(status, data, headers)
+            try:
+                text = data["choices"][0]["message"]["content"] or ""
+            except (KeyError, IndexError, TypeError):
+                raise ProviderError("Unexpected response shape", kind="bad_response")
         if isinstance(text, list):  # some providers return content parts
             text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
         # Reasoning models sometimes wrap thoughts in <think> tags.

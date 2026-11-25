@@ -228,3 +228,36 @@ async def test_pending_report_memory():
     assert m.pop_pending(1, 2) is None
     assert isinstance(Intent("x"), Intent)
     await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_reasoning_model_empty_reply_is_retried():
+    """Groq's gpt-oss models think first; a small max_tokens used to return an empty reply."""
+    from ai.providers.openai_compat import OpenAICompatProvider
+    sent = []
+
+    class Resp:
+        def __init__(self, d):
+            self.d, self.status, self.headers = d, 200, {}
+
+        async def json(self, content_type=None):
+            return self.d
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Session:
+        def post(self, url, json, headers, timeout):
+            sent.append(dict(json))
+            if json["max_tokens"] < 2048:
+                return Resp({"choices": [{"message": {"content": ""}, "finish_reason": "length"}]})
+            return Resp({"choices": [{"message": {"content": "DISPATCH ONLINE"}, "finish_reason": "stop"}]})
+
+    p = OpenAICompatProvider("https://api.groq.com/openai/v1", "gsk_" + "x" * 40, "openai/gpt-oss-20b", lambda: Session(),
+                             name="groq", needs_key=True)
+    r = await p.generate(system="s", prompt="Reply with exactly: DISPATCH ONLINE", max_tokens=40)
+    assert r.text == "DISPATCH ONLINE"
+    assert sent[0]["max_tokens"] >= 1024 and sent[0].get("reasoning_effort") == "low"
