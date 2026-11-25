@@ -12,9 +12,13 @@ from discord.ext import commands
 
 from ai.gemini import GeminiProvider
 from ai.manager import AIManager
+from ai.providers.catalog import CATALOG, SPEC
 from ai.providers.ollama import OllamaProvider
 from ai.providers.openai_compat import OpenAICompatProvider
+from bot import text_dispatch
+from bot.logbook import Logbook
 from config import Settings
+from core.version import NAME, RELEASE, VERSION
 from core import events as ev
 from core.events import EventBus
 from core.logging_setup import register_secret
@@ -46,7 +50,9 @@ PANEL_MODULES = {
     "admin": administration, "stats": statistics,
 }
 
-COGS = ["bot.commands.setup", "bot.commands.dispatch", "bot.commands.units", "bot.commands.records", "bot.commands.system"]
+COGS = ["bot.commands.setup", "bot.commands.dispatch", "bot.commands.units", "bot.commands.records", "bot.commands.system",
+        "bot.commands.pulse_dispatch", "bot.commands.pulse_units", "bot.commands.pulse_admin", "bot.commands.pulse_ai",
+        "bot.commands.pulse_info"]
 
 
 class DispatchBot(commands.Bot):
@@ -55,7 +61,9 @@ class DispatchBot(commands.Bot):
         intents.members = True        # map voice speakers / roles to officers
         intents.message_content = True
         intents.voice_states = True
-        super().__init__(command_prefix=commands.when_mentioned, intents=intents, help_command=None)
+        # Safe default: the bot never pings anyone unless a message explicitly allows specific role mentions.
+        super().__init__(command_prefix=commands.when_mentioned, intents=intents, help_command=None,
+                         allowed_mentions=discord.AllowedMentions(everyone=False, users=False, roles=False, replied_user=False))
         self.settings = settings
         self.started_at_iso = iso_now()
         self.bus = EventBus()
@@ -73,14 +81,50 @@ class DispatchBot(commands.Bot):
         self.stt = STTEngine(settings.whisper_model, settings.whisper_device, settings.whisper_compute_type)
         self.player: AnnouncementPlayer = None  # type: ignore[assignment]
         self.voice_commands: VoiceCommandProcessor = None  # type: ignore[assignment]
+        self.logbook: Logbook = None  # type: ignore[assignment]
         self.panels = PanelManager(self)
         self.webhook_server: Optional[WebhookServer] = None
         self._tasks: list[asyncio.Task] = []
         self._card_locks: dict[int, asyncio.Lock] = {}
         self._card_pending: set[int] = set()
         for secret in (settings.discord_token, settings.gemini_api_key, settings.erlc_server_key, settings.erlc_global_key,
-                       settings.openai_compat_api_key):
+                       settings.openai_compat_api_key, settings.secret_key,
+                       *[v.get("api_key", "") for v in settings.provider_keys.values()]):
             register_secret(secret)
+
+    def _build_providers(self) -> list:
+        s = self.settings
+        out = []
+        for spec in CATALOG:
+            if spec.name == "gemini":
+                out.append(GeminiProvider(s.gemini_api_key, s.gemini_model, self.session))
+            elif spec.name == "ollama":
+                out.append(OllamaProvider(s.ollama_base_url, s.ollama_model, self.session))
+            elif spec.name == "openai_compat":
+                out.append(OpenAICompatProvider(s.openai_compat_base_url, s.openai_compat_api_key, s.openai_compat_model,
+                                                self.session))
+            else:
+                env = s.provider_keys.get(spec.name, {})
+                out.append(OpenAICompatProvider(spec.base_url, env.get("api_key", ""), env.get("model") or spec.default_model,
+                                                self.session, name=spec.name, label=spec.label,
+                                                account_id=env.get("account_id", ""), needs_key=True,
+                                                extra_headers=spec.extra_headers, suggested_models=spec.models))
+        return out
+
+    async def _ai_credentials(self, guild_id: int, provider: str) -> dict:
+        """Per-server AI keys set by that server's administrators (encrypted at rest). Never shared between servers."""
+        sp = SPEC.get(provider)
+        if sp is None or not sp.needs_key or self.secrets is None:
+            return {}
+        key = await self.secrets.get(guild_id, f"ai_key:{provider}")
+        if not key:
+            return {}
+        creds = {"api_key": key}
+        if sp.needs_account_id:
+            acct = await self.secrets.get(guild_id, f"ai_account:{provider}")
+            if acct:
+                creds["account_id"] = acct
+        return creds
 
     def session(self) -> aiohttp.ClientSession:
         if self.http_session is None or self.http_session.closed:
@@ -93,15 +137,13 @@ class DispatchBot(commands.Bot):
         s.ensure_dirs()
         await self.db.connect()
         self.secrets = SecretStore(self.db, s.secret_key, s.data_dir / "secret.key")
-        providers = [
-            GeminiProvider(s.gemini_api_key, s.gemini_model, self.session),
-            OllamaProvider(s.ollama_base_url, s.ollama_model, self.session),
-            OpenAICompatProvider(s.openai_compat_base_url, s.openai_compat_api_key, s.openai_compat_model, self.session),
-        ]
-        # Ollama / OpenAI-compatible are only "configured" when their URL is set in .env.
+        providers = self._build_providers()
+        # Ollama / custom endpoints are only "configured" when their URL is set in .env (never from Discord: no SSRF).
         self.ai = AIManager(self.db, self.bus, providers, daily_limits={"gemini": s.gemini_daily_request_limit},
-                            rpm_limits={"gemini": 8})
+                            rpm_limits={"gemini": 8, "openrouter": 18, "github": 10, "cohere": 18, "nvidia": 35},
+                            credentials=self._ai_credentials)
         self.core = DispatchCore(self.db, self.bus, self.audit, self.ai)
+        self.logbook = Logbook(self)
         self.sync = SyncManager(self.db, self.bus, self.secrets, self.session, lambda: self.core.intake,
                                 base_url=s.erlc_base_url, env_server_key=s.erlc_server_key, env_global_key=s.erlc_global_key,
                                 env_guild_id=s.dev_guild_id, poll_seconds=s.erlc_poll_seconds)
@@ -157,10 +199,14 @@ class DispatchBot(commands.Bot):
                         asyncio.create_task(self._health_loop(), name="health")]
 
     async def on_ready(self) -> None:
-        log.info("Logged in as %s (%s) in %d guild(s)", self.user, self.user.id if self.user else "?", len(self.guilds))
+        log.info("%s v%s (%s) logged in as %s (%s) in %d guild(s)", NAME, VERSION, RELEASE, self.user,
+                 self.user.id if self.user else "?", len(self.guilds))
         await self._update_presence()
         for guild in self.guilds:
             await self._init_guild(guild)
+
+    async def on_message(self, message: discord.Message) -> None:
+        await text_dispatch.on_message(self, message)
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
         await self._update_presence()
@@ -315,7 +361,9 @@ class DispatchBot(commands.Bot):
 
     async def _upsert_card(self, guild_id: int, incident_id: int) -> None:
         from bot.ui import incident_embed
-        ch = await self.log_channel(guild_id)
+        if not await self.logbook.enabled(guild_id, "incidents"):
+            return
+        ch = await self.logbook.channel_for(guild_id, "incidents")
         inc = await self.core.incidents.get(incident_id)
         if ch is None or inc is None:
             return
@@ -382,15 +430,7 @@ class DispatchBot(commands.Bot):
         row = await self.db.fetchone("SELECT * FROM announcements WHERE id = ?", (e.data["announcement_id"],))
         if row is None or row["kind"] == "voice_reply":
             return
-        ch = await self.log_channel(e.guild_id)
-        if ch is None:
-            return
-        icon = {"played": "🔊", "muted": "🔇", "failed": "⚠️"}[status]
-        suffix = {"played": "", "muted": " *(speech muted — text only)*", "failed": f" *(voice playback failed: {row['last_error']})*"}[status]
-        try:
-            await ch.send(f"{icon} **Dispatch:** {row['text'][:1800]}{suffix}", allowed_mentions=discord.AllowedMentions.none())
-        except discord.HTTPException:
-            pass
+        await self.logbook.radio(e.guild_id, row["text"], status=status, error=row["last_error"])
 
     # ------------------------------------------------------------------ voice helpers
     def _member_lookup(self, guild_id: int, user_id: int) -> Optional[discord.Member]:
@@ -398,13 +438,7 @@ class DispatchBot(commands.Bot):
         return guild.get_member(user_id) if guild else None
 
     async def _voice_log(self, guild_id: int, speaker: str, transcript: str, reply_text: str) -> None:
-        ch = await self.log_channel(guild_id)
-        if ch:
-            try:
-                await ch.send(f"🎙️ **{discord.utils.escape_markdown(speaker)}:** {discord.utils.escape_mentions(transcript)[:900]}\n"
-                              f"📡 **Dispatch:** {reply_text[:900]}", allowed_mentions=discord.AllowedMentions.none())
-            except discord.HTTPException:
-                pass
+        await self.logbook.radio(guild_id, reply_text, speaker=speaker, transcript=transcript)
 
     # ------------------------------------------------------------------ setup helpers
     async def apply_private_channel_permissions(self, guild: Optional[discord.Guild]) -> None:
@@ -447,8 +481,13 @@ class DispatchBot(commands.Bot):
         original = getattr(error, "original", error)
         if isinstance(error, app_commands.CheckFailure):
             return await reply(interaction, "⛔ You can't use this command.", error=True)
+        if isinstance(error, app_commands.CommandOnCooldown):
+            return await reply(interaction, f"⏳ Slow down — try again in {error.retry_after:.0f}s.", error=True)
         log.error("Command error in /%s", interaction.command.qualified_name if interaction.command else "?", exc_info=original)
-        await reply(interaction, "⚠️ Something went wrong while processing that. The error was logged.", error=True)
+        from security.validation import ValidationError
+        if isinstance(original, ValidationError):
+            return await reply(interaction, f"⚠️ {original}", error=True)
+        await reply(interaction, "⚠️ Something went wrong while processing that. The error was logged for administrators.", error=True)
 
     async def on_error(self, event_method: str, /, *args, **kwargs) -> None:
         log.exception("Unhandled error in %s", event_method)

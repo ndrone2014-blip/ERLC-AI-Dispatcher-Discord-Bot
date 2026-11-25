@@ -31,6 +31,8 @@ INTENTS = {
     "query_bolos": "Ask about active BOLOs.",
     "self_initiated": ("Officer starts their own activity. args: kind (traffic_stop|subject_stop|pursuit|foot_pursuit), "
                        "location (only if said), plate (only if said), detail"),
+    "report_incident": ("Someone reports a NEW emergency or incident (crash, fire, robbery, fight...). "
+                        "args: nature (short), location (only if said)"),
     "question": "Any other dispatch-related question. args: text",
     "unclear": "The request is ambiguous or not a dispatch request.",
 }
@@ -294,6 +296,17 @@ async def parse_with_ai(ai: AIManager, guild_id: int, text: str, status_codes: l
         args["incident_number"] = n if n is not None and (n == said or str(n) in text) else None
         if args["incident_number"] is None:
             args.pop("incident_number")
+    if name == "report_incident":
+        # Use the AI's interpretation only for what the caller actually said; never an invented location.
+        from dispatch import nlu
+        a = nlu.analyze(text)
+        loc = a.location
+        ai_loc = str(args.get("location") or "").strip()
+        if not loc and ai_loc and all(w in text.lower() for w in ai_loc.lower().split()[:3]):
+            loc = nlu._pretty(ai_loc.lower())
+        nature = a.nature or (str(args.get("nature") or "").strip()[:80] or None)
+        args = {"text": text.strip()[:1000], "nature": nature, "category": a.category, "location": loc,
+                "missing": [m for m, v in (("nature", nature), ("location", loc)) if not v]}
     if name == "status_change":
         valid = {s["code"].upper(): s["code"] for s in status_codes}
         code = str(args.get("code", "")).upper()
@@ -311,16 +324,40 @@ async def parse_with_ai(ai: AIManager, guild_id: int, text: str, status_codes: l
 
 
 class ConversationMemory:
-    """Short rolling conversational context per officer (NOT authoritative state)."""
+    """Short rolling conversational context per officer (NOT authoritative state).
+
+    Also holds a *pending report* per person: when a caller reports "there's a crash" without a location,
+    dispatch asks for it and the next message from the same person completes the report.
+    """
+
+    PENDING_TTL = 180.0
 
     def __init__(self, max_turns: int = 10):
         self._turns: dict[tuple[int, int], deque] = defaultdict(lambda: deque(maxlen=max_turns))
+        self._pending: dict[tuple[int, int], tuple[float, dict]] = {}
+        self.last_report: dict[tuple[int, int], tuple[dict, bool]] = {}   # (incident, merged) of the latest report
 
     def add(self, guild_id: int, user_id: int, speaker: str, text: str) -> None:
         self._turns[(guild_id, user_id)].append(f"{speaker}: {text}")
 
     def get(self, guild_id: int, user_id: int) -> list[str]:
         return list(self._turns[(guild_id, user_id)])
+
+    def set_pending(self, guild_id: int, user_id: int, data: dict) -> None:
+        import time
+        self._pending[(guild_id, user_id)] = (time.monotonic(), data)
+
+    def pop_pending(self, guild_id: int, user_id: int) -> Optional[dict]:
+        import time
+        item = self._pending.pop((guild_id, user_id), None)
+        if item is None or time.monotonic() - item[0] > self.PENDING_TTL:
+            return None
+        return item[1]
+
+    def has_pending(self, guild_id: int, user_id: int) -> bool:
+        import time
+        item = self._pending.get((guild_id, user_id))
+        return bool(item and time.monotonic() - item[0] <= self.PENDING_TTL)
 
 
 async def answer_question(ai: AIManager, guild_id: int, question: str, situation: str, context: list[str]) -> str:
@@ -333,3 +370,126 @@ async def answer_question(ai: AIManager, guild_id: int, question: str, situation
     from .assessment import DISPATCHER_PERSONA
     resp = await ai.generate(guild_id, purpose="question", system=DISPATCHER_PERSONA, prompt=prompt, max_tokens=220, temperature=0.3)
     return resp.text.strip()
+
+
+# ---------------------------------------------------------------------------- local understanding (no AI)
+_PRONOUNS = {"me", "i", "im", "i'm", "us", "we", "my", "myself", "show", "mark", "put", "set"}
+
+
+def _tokens(t: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9'-]+", t))
+
+
+def token_intent(text: str, status_codes: list[dict]) -> Optional[Intent]:
+    """Word-order independent fallback: looks at WHICH words were said, not their order.
+
+    "available show me" / "me attach incident 104 to" / "units available who" are all understood.
+    """
+    from dispatch import nlu
+    t = nlu.normalize(normalize_speech(text))
+    tok = _tokens(t)
+    if not tok:
+        return None
+    num = _incident_number(t)
+    question = bool(tok & {"what", "which", "who", "any", "how", "list", "show"}) and not tok & {"me", "i", "im", "i'm"}
+    if "bolo" in tok or "bolos" in tok:
+        return Intent("query_bolos", source="rules:tokens")
+    if tok & {"available", "10-8"} and tok & {"units", "officers", "unit", "deputies", "troopers"} and (question or "who" in tok):
+        return Intent("query_available", source="rules:tokens")
+    if tok & {"calls", "incidents", "call", "incident"} and tok & {"active", "open", "pending", "current", "going"} and question:
+        return Intent("query_active", source="rules:tokens")
+    if tok & {"highest", "urgent", "worst", "serious", "top"} and tok & {"priority", "call", "calls", "incident"}:
+        return Intent("query_highest", source="rules:tokens")
+    if tok & {"attach", "assign", "assigned"} and tok & _PRONOUNS:
+        return Intent("attach", {"incident_number": num} if num is not None else {"latest": True}, source="rules:tokens")
+    if tok & {"detach", "unassign", "clear", "cleared"} and tok & _PRONOUNS:
+        return Intent("detach", {"incident_number": num} if num else {}, source="rules:tokens")
+    if tok & {"backup", "back-up"} or ("back" in tok and "up" in tok and tok & {"need", "send", "request", "requesting"}):
+        urgency = "emergency" if tok & {"emergency", "urgent", "asap", "shots", "down", "10-33"} else "routine"
+        return Intent("backup", {"urgency": urgency, "note": text.strip()[:200]}, source="rules:tokens")
+    if tok & _PRONOUNS:
+        for sc in status_codes:
+            label = set(re.findall(r"[a-z0-9'-]+", sc["label"].lower()))
+            if sc["code"].lower() in tok or (label and label <= tok):
+                return Intent("status_change", {"code": sc["code"]}, source="rules:tokens")
+    return None
+
+
+def report_intent(text: str, *, min_confidence: float = 0.5) -> Optional[Intent]:
+    """An incident report ("we have a crash at the bank") as a structured intent, or None."""
+    from dispatch import nlu
+    a = nlu.analyze(text)
+    if a.incident_type is None or a.confidence < min_confidence:
+        return None
+    return Intent("report_incident", {"text": text.strip()[:1000], "nature": a.nature, "category": a.category,
+                                      "location": a.location, "missing": a.missing},
+                  confidence=a.confidence, source="rules:nlu")
+
+
+def custom_report_intent(text: str, custom: Optional[list[dict]]) -> Optional[Intent]:
+    """A report that only uses a server-defined category keyword ("turf war" -> Gang activity)."""
+    if not custom:
+        return None
+    from dispatch import nlu
+    from dispatch.recommendations import match_custom
+    a = nlu.analyze(text)
+    rule = match_custom(a.normalized, custom)
+    if rule is None:
+        return None
+    return Intent("report_incident", {"text": text.strip()[:1000], "nature": str(rule.get("category"))[:80],
+                                      "category": rule.get("category"), "location": a.location,
+                                      "missing": [] if a.location else ["location"]},
+                  confidence=0.8, source="rules:custom")
+
+
+def understand(text: str, status_codes: list[dict], *, allow_reports: bool = True) -> Optional[Intent]:
+    """Best local interpretation of a message to dispatch, or None (then AI is asked).
+
+    Order: exact radio phrases -> spelling-corrected phrases -> incident report -> word-order independent intents.
+    Officer self-reports (status / attach / self-initiated stops) always win over incident reports.
+    """
+    from dispatch import nlu
+    first = parse_rules(text, status_codes)
+    if first is None:
+        corrected = nlu.normalize(normalize_speech(text))
+        if corrected and corrected != normalize_speech(text):
+            first = parse_rules(corrected, status_codes)
+            if first is not None:
+                first.source = "rules:corrected"
+    officer_first = {"status_change", "attach", "detach", "self_initiated", "radio_check", "query_available",
+                     "query_active", "query_highest", "query_incident_units", "query_incident", "query_bolos"}
+    if first is not None and first.name in officer_first:
+        return first
+    report = report_intent(text) if allow_reports else None
+    if first is not None and first.name == "backup":
+        # "need units at the bank, there's a robbery" is a report; "need backup" is a backup request.
+        said_backup = re.search(r"\b(backup|back up|10-78|cover me)\b", nlu.normalize(text))
+        if report is not None and not said_backup and report.args.get("location"):
+            return report
+        return first
+    if first is not None and first.name != "unclear":
+        return first
+    if report is not None:
+        return report
+    tok = token_intent(text, status_codes)
+    if tok is not None:
+        return tok
+    return first
+
+
+def complete_pending(pending: dict, text: str) -> Intent:
+    """Merge a follow-up answer into a pending report ("there's a crash" ... "at the bank")."""
+    from dispatch import nlu
+    combined = f"{pending.get('text', '')}. {text}".strip(". ")
+    a = nlu.analyze(combined)
+    location = pending.get("location") or a.location
+    if not location:
+        # A short answer that is not an instruction is the location itself ("main street and 5th").
+        words = re.findall(r"[a-z0-9']+", text.lower())
+        if 0 < len(words) <= 8 and nlu.analyze(text).incident_type is None:
+            location = nlu._pretty(" ".join(w for w in words if w not in {"its", "it's", "at", "the", "on", "near", "were", "we're"}))
+    nature = pending.get("nature") or a.nature
+    missing = [m for m, v in (("nature", nature), ("location", location)) if not v]
+    return Intent("report_incident", {"text": combined[:1000], "nature": nature, "category": a.category or pending.get("category"),
+                                      "location": location, "missing": missing, "follow_up": True},
+                  confidence=max(a.confidence, 0.6), source="rules:followup")

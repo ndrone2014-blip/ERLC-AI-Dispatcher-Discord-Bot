@@ -180,7 +180,7 @@ class SyncManager:
                     await self._set_status(gs, "rate_limited", f"Rate limited, retrying in {int(e.retry_after or 5)}s")
                     await self._sleep(gs, (e.retry_after or 5) + 0.5)
                 elif e.fatal:
-                    await self._set_status(gs, "error", e.friendly() + " — update the key in the ER:LC panel")
+                    await self._set_status(gs, "error", e.friendly() + " — set a new key with /settings erlc-key (or the ER:LC panel)")
                     await self._sleep(gs, 300)  # do not hammer the API with a bad key; config change wakes us
                 else:
                     await self._set_status(gs, "error", e.friendly())

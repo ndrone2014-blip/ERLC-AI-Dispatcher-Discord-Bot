@@ -23,7 +23,7 @@ async def build(bot: "DispatchBot", guild_id: int):
     for i, p in enumerate(rows):
         role = "Primary" if i == 0 else ("Secondary" if i == 1 else f"Fallback {i}")
         if not p["configured"]:
-            state = "⚫ Not configured (add key/URL to .env)"
+            state = "⚫ No key — add one with /ai-provider key"
         elif not p["enabled"]:
             state = "⚪ Disabled"
         elif p["cooling_down"]:

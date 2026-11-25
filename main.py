@@ -18,8 +18,9 @@ def preflight() -> list[str]:
         problems.append(f"Python 3.10+ is required (you have {sys.version.split()[0]}).")
     if not settings.discord_token or settings.discord_token.startswith("your-"):
         problems.append("DISCORD_TOKEN is missing in .env")
-    if not settings.gemini_api_key:
-        log.warning("GEMINI_API_KEY is not set: AI features fall back to rule-based assessments and templates.")
+    if not settings.gemini_api_key and not any(v.get("api_key") for v in settings.provider_keys.values()):
+        log.warning("No AI key in .env. Dispatch works with local recognition; server admins can add free keys "
+                    "with /ai-provider key (OpenRouter, Groq, Gemini, Cerebras...).")
     ff = shutil.which(settings.ffmpeg_path) or (settings.ffmpeg_path if __import__("os").path.exists(settings.ffmpeg_path) else None)
     if not ff:
         log.warning("FFmpeg not found (%s): voice playback will not work until FFMPEG_PATH is set.", settings.ffmpeg_path)
@@ -71,7 +72,8 @@ def main() -> int:
             log.error(p)
         log.error("Fix the problems above (see README.md) and start again.")
         return 1
-    log.info("Starting ER:LC AI Dispatch (test mode: %s)", settings.test_mode)
+    from core.version import NAME, RELEASE, VERSION
+    log.info("Starting %s v%s — %s (test mode: %s)", NAME, VERSION, RELEASE, settings.test_mode)
     try:
         asyncio.run(run())
     except KeyboardInterrupt:

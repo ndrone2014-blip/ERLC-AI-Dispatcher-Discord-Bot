@@ -59,10 +59,12 @@ async def latest_call(core: "DispatchCore", guild_id: int, unit_id: Optional[int
 
 
 async def execute_intent(core: "DispatchCore", guild_id: int, officer: Optional[dict], intent: Intent,
-                         actor_id: int, memory: Optional[ConversationMemory] = None) -> str:
+                         actor_id: int, memory: Optional[ConversationMemory] = None, caller: Optional[str] = None) -> str:
     """Run an intent against the authoritative database and return the dispatcher's reply."""
     if intent.clarification:
         return intent.clarification
+    if intent.name == "report_incident":
+        return await execute_report(core, guild_id, officer, intent, actor_id, memory, caller)
     name, args = intent.name, intent.args
     callsign = officer.get("callsign") if officer else None
     unit_id = officer.get("unit_id") if officer else None
@@ -189,6 +191,36 @@ async def execute_intent(core: "DispatchCore", guild_id: int, officer: Optional[
         return "Dispatch can't answer that right now. Check the Discord panels."
 
 
+async def execute_report(core: "DispatchCore", guild_id: int, officer: Optional[dict], intent: Intent, actor_id: int,
+                         memory: Optional[ConversationMemory], caller: Optional[str]) -> str:
+    """A natural-language incident report: ask for what is missing, merge duplicates, otherwise open an incident."""
+    from dispatch import phrases
+    args = intent.args
+    text = str(args.get("text") or "")
+    missing = list(args.get("missing") or [])
+    ask = bool(await core.setting(guild_id, "follow_up_questions"))
+    if missing and ask and memory is not None and not args.get("asked_twice"):
+        from dispatch import nlu
+        a = nlu.analyze(text)
+        data = {"text": text, "nature": args.get("nature"), "category": args.get("category"), "location": args.get("location"),
+                "asked_twice": bool(args.get("follow_up"))}
+        memory.set_pending(guild_id, actor_id, data)
+        return a.follow_up() or phrases.ask_again(guild_id)
+    if not args.get("nature") and not args.get("location"):
+        return phrases.ask_again(guild_id)
+    who = caller or (officer.get("callsign") if officer else None) or "Discord caller"
+    inc, merged = await core.report_incident(guild_id, actor_id, text=text, caller=who, location=args.get("location"),
+                                             category=args.get("category"), nature=args.get("nature"))
+    if memory is not None:
+        memory.last_report[(guild_id, actor_id)] = (inc, merged)
+    await core.bus.publish("dispatch.report", guild_id, incident_id=inc["id"], merged=merged, text=text[:500],
+                           actor_id=actor_id, source=intent.source)
+    if merged:
+        return phrases.duplicate_reply(inc, guild_id=guild_id)
+    style = await core.setting(guild_id, "response_style")
+    return phrases.call_received_reply(inc, style=style, guild_id=guild_id)
+
+
 class VoiceCommandProcessor:
     def __init__(self, core: "DispatchCore", voice: "VoiceManager", stt: "STTEngine", permissions: "PermissionManager",
                  log_callback: Callable[[int, str, str, str], Awaitable[None]], member_lookup):
@@ -277,6 +309,15 @@ class VoiceCommandProcessor:
         self._recent[key] = now
         speaker = officer["callsign"] if officer and officer.get("callsign") else member.display_name
         intent = rule_intent
+        pending = self.memory.pop_pending(guild_id, user_id)
+        if pending is not None and (intent is None or intent.name in {"unclear", "report_incident"}):
+            from ai.conversation import complete_pending
+            intent = complete_pending(pending, rest)
+            intent.args["asked_twice"] = pending.get("asked_twice", False)
+        if intent is None:
+            from ai.conversation import custom_report_intent, understand
+            intent = understand(rest, statuses) or custom_report_intent(
+                rest, await self.core.db.get_config(guild_id, "custom_categories", []) or [])
         if intent is None and self.core.ai is not None:
             ctx = self.memory.get(guild_id, user_id)
             intent = await parse_with_ai(self.core.ai, guild_id, rest, statuses, ctx,
@@ -285,10 +326,11 @@ class VoiceCommandProcessor:
                 intent.args.setdefault("text", rest)
         if intent is None:
             intent = Intent("unclear", clarification="Dispatch, say again?")
-        if officer is None and intent.name not in {"query_highest", "query_active", "query_available", "query_bolos", "question"}:
+        if officer is None and intent.name not in {"query_highest", "query_active", "query_available", "query_bolos", "question",
+                                                   "report_incident"}:
             reply = "Unidentified station, state your callsign. Register your unit with slash unit register."
         else:
-            reply = await execute_intent(self.core, guild_id, officer, intent, user_id, self.memory)
+            reply = await execute_intent(self.core, guild_id, officer, intent, user_id, self.memory, caller=speaker)
         log.info("Voice command from %s: heard %r -> intent %s %s (%s) -> reply %r [speech-to-text %.1fs, total %.1fs]",
                  speaker, text, intent.name, intent.args, intent.source, reply, stt_seconds, time.monotonic() - started)
         self.memory.add(guild_id, user_id, speaker, rest)

@@ -87,7 +87,8 @@ class AssignmentService:
             await c.execute("UPDATE units SET current_incident_id = NULL WHERE id = ? AND current_incident_id = ?", (unit_id, incident_id))
         await self.incidents.add_history(inc, "unit_detached", actor_id, unit=unit["callsign"], reason=reason)
         await self.audit.record(inc["guild_id"], actor_id, "incident.detach", f"incident:{inc['number']}", {"unit": unit["callsign"], "reason": reason})
-        await self.bus.publish(ev.ASSIGNMENT_CHANGED, inc["guild_id"], incident_id=incident_id, unit_id=unit_id, action="detach")
+        await self.bus.publish(ev.ASSIGNMENT_CHANGED, inc["guild_id"], incident_id=incident_id, unit_id=unit_id, action="detach",
+                               actor_id=actor_id, reason=reason)
         await self.bus.publish(ev.ACTIVITY, inc["guild_id"], text=f"{unit['callsign']} cleared from incident #{inc['number']}")
         return await self.units.unit(unit_id)
 

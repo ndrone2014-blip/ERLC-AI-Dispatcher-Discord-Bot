@@ -44,7 +44,18 @@ DEFAULT_DEPARTMENTS = [
     ("Fire Department", "FD", "fire"),
     ("EMS", "EMS", "ems"),
     ("Dispatch Supervisors", "SUP", "supervisor"),
+    ("Specialized Response Unit", "SRU", "special"),
 ]
+
+DEPARTMENT_KINDS = {
+    "law": "Law enforcement (police, sheriff, state police)",
+    "fire": "Fire department",
+    "ems": "EMS / medical",
+    "supervisor": "Dispatch supervisors",
+    "special": "Specialized response (SWAT, K9, air, marine...)",
+    "dispatch": "Dispatch / communications",
+    "other": "Other",
+}
 
 DEFAULT_STATUS_CODES = [
     # code, label, availability, sort
@@ -53,6 +64,8 @@ DEFAULT_STATUS_CODES = [
     ("10-23", "On Scene", "assigned", 3),
     ("10-11", "Traffic Stop", "assigned", 3),
     ("10-15", "Transporting", "assigned", 4),
+    ("10-19", "Returning to Station", "unavailable", 5),
+    ("10-6", "Busy", "unavailable", 5),
     ("10-7", "Unavailable", "unavailable", 5),
     ("OOS", "Out of Service", "off", 6),
 ]

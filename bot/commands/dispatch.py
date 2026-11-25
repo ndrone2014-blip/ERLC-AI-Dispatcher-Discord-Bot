@@ -7,7 +7,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from ai.conversation import Intent, parse_rules, parse_with_ai, strip_wake_word
 from bot.commands import callsign_autocomplete, incident_autocomplete
 from bot.ui import BRAND, has_perm, incident_embed, priority_badge, rate_limited, reply, require, truncate
 from database.models import PRIORITIES, PRIORITY_LABEL, discord_ts
@@ -16,7 +15,6 @@ from dispatch.units import UnitError
 from panels.citizen_services import Call911Modal
 from panels.incidents import incident_actions_view
 from security.validation import clean_text
-from voice.commands import execute_intent
 
 if TYPE_CHECKING:
     from bot.client import DispatchBot
@@ -229,28 +227,18 @@ class DispatchCog(commands.Cog):
     # ------------------------------------------------------------------ /dispatch
     dispatch = app_commands.Group(name="dispatch", description="Talk to or control the dispatcher", guild_only=True)
 
-    @dispatch.command(name="ask", description="Send a natural-language request to dispatch, e.g. 'I'm 10-8' or 'what calls are active?'")
+    @dispatch.command(name="ask", description="Talk to dispatch in plain language: report an emergency, set your status, ask a question")
+    @app_commands.describe(message="e.g. 'crash at the bank, need EMS', 'show me 10-8', 'what calls are active?'")
     async def dispatch_ask(self, interaction: discord.Interaction, message: str):
-        if not await require(interaction, "voice.command"):
+        if not isinstance(interaction.user, discord.Member):
             return
         if await rate_limited(interaction, "ask"):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        _, text = strip_wake_word(message)
-        statuses = await self.bot.core.units.status_codes(interaction.guild_id)
-        officer = await self.bot.core.units.officer_by_discord(interaction.guild_id, interaction.user.id)
-        intent = parse_rules(text, statuses)
-        if intent is None and self.bot.ai is not None:
-            ctx = self.bot.voice_commands.memory.get(interaction.guild_id, interaction.user.id)
-            intent = await parse_with_ai(self.bot.ai, interaction.guild_id, text, statuses, ctx,
-                                         officer.get("current_incident_id") if officer else None)
-            if intent.name == "question":
-                intent.args.setdefault("text", text)
-        intent = intent or Intent("unclear", clarification="Dispatch, say again?")
-        answer = await execute_intent(self.bot.core, interaction.guild_id, officer, intent, interaction.user.id, self.bot.voice_commands.memory)
-        self.bot.voice_commands.memory.add(interaction.guild_id, interaction.user.id, "Officer", text)
-        self.bot.voice_commands.memory.add(interaction.guild_id, interaction.user.id, "Dispatch", answer)
-        await interaction.followup.send(f"📡 **Dispatch:** {answer}", ephemeral=True)
+        from bot import text_dispatch
+        result = await text_dispatch.process(self.bot, interaction.user, clean_text(message, 1000, required=True, field="Message"),
+                                             channel_name="/dispatch ask")
+        await interaction.followup.send(embeds=await text_dispatch.render(self.bot, interaction.guild_id, result), ephemeral=True)
 
     @dispatch.command(name="notice", description="Broadcast a routine department notification (voice + log)")
     async def dispatch_notice(self, interaction: discord.Interaction, message: str):

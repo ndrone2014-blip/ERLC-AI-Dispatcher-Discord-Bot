@@ -7,7 +7,6 @@ still contains the real incident facts (otherwise a template is used).
 from __future__ import annotations
 
 import logging
-import random
 import re
 from typing import Optional
 
@@ -32,7 +31,7 @@ Return a single JSON object with these keys:
   "category": short incident type (e.g. "Traffic collision"),
   "priority": one of "low","routine","medium","high","critical",
   "recommended_units": integer TOTAL units appropriate for the incident (1-10),
-  "department_kinds": list drawn from ["law","fire","ems","supervisor"],
+  "department_kinds": list drawn from ["law","fire","ems","supervisor","special"] (special = SWAT/K9/air units),
   "departments": list of department short codes chosen ONLY from the configured list below,
   "supervisor_notification": true/false,
   "uncertain": true if the description is vague or unconfirmed,
@@ -63,7 +62,8 @@ def _incident_facts(inc: dict, notes: list[str]) -> str:
 
 
 async def assess_incident(ai: Optional[AIManager], guild_id: int, inc: dict, *, departments: list[dict],
-                          assigned_units: list[dict], availability: dict, notes: list[str]) -> dict:
+                          assigned_units: list[dict], availability: dict, notes: list[str],
+                          custom: Optional[list[dict]] = None) -> dict:
     available_by_kind: dict[str, int] = {}
     for d in departments:
         bucket = availability.get("by_department", {}).get(d["short_code"], {})
@@ -76,7 +76,11 @@ async def assess_incident(ai: Optional[AIManager], guild_id: int, inc: dict, *, 
             f"{ASSESS_INSTRUCTIONS}\n\nConfigured departments: {dept_list}\n"
             f"Units already assigned to this incident: {assigned_count} "
             f"({', '.join(u['callsign'] for u in assigned_units) or 'none'})\n"
-            f"Available units by department type: {available_by_kind}\n\nINCIDENT:\n{_incident_facts(inc, notes)}"
+            f"Available units by department type: {available_by_kind}\n"
+            + (("Server-specific incident categories: " + "; ".join(
+                f"{c.get('category')} ({c.get('priority')}) when the call mentions {', '.join(c.get('keywords') or [])}"
+                for c in custom) + "\n") if custom else "")
+            + f"\nINCIDENT:\n{_incident_facts(inc, notes)}"
         )
         try:
             resp = await ai.generate(guild_id, purpose="assessment", system=DISPATCHER_PERSONA, prompt=prompt,
@@ -90,7 +94,7 @@ async def assess_incident(ai: Optional[AIManager], guild_id: int, inc: dict, *, 
             log.info("AI assessment unavailable for incident #%s, using rules: %s", inc["number"], e)
 
     text = " ".join(filter(None, [inc.get("nature"), inc.get("description")] + notes[-5:]))
-    raw = rule_based_assessment(text, assigned_count, inc.get("requested_department"))
+    raw = rule_based_assessment(text, assigned_count, inc.get("requested_department"), custom=custom)
     return normalize_assessment(raw, departments, assigned_count=assigned_count, available_by_kind=available_by_kind,
                                 requested_department=inc.get("requested_department"), source="rules")
 
@@ -103,36 +107,10 @@ def _spoken_location(inc: dict) -> str:
     return loc
 
 
-def template_new_call(inc: dict) -> str:
-    """Deterministic announcement built only from stored incident fields."""
-    loc = _spoken_location(inc)
-    nature = inc.get("nature") or inc.get("description")
-    nature_text = nature if nature else "Nature of call not provided"
-    opener = random.choice([
-        "Attention all units. Dispatch has received a new 911 call.",
-        "All units, be advised. New 911 call received.",
-        "Dispatch to all units. New 911 call.",
-    ])
-    if inc["source"] == "test":
-        opener = "This is a test. Test data only. " + opener
-    elif inc["verification"] == "unverified":
-        opener += " This report is unverified."
-    parts = [opener, f"Incident {inc['number']}.", f"Location: {loc}.", f"Nature of call: {nature_text}."]
-    if inc.get("ai_priority") or inc.get("priority"):
-        prio = PRIORITY_LABEL.get(inc.get("priority") or inc.get("ai_priority"), "")
-        units = inc.get("recommended_units")
-        deps = loads(inc.get("recommended_departments"), []) or []
-        rec = f"Dispatch assessment: {prio} priority."
-        if units:
-            rec += f" Recommend {units} unit{'s' if units != 1 else ''}"
-            rec += (", with " + ", ".join(deps) + "." if deps else ".")
-        if inc.get("supervisor_recommended"):
-            rec += " Supervisor notification recommended."
-        parts.append(rec)
-    else:
-        parts.append("Dispatch is assessing the incident.")
-    parts.append("Available units, please review the active calls panel.")
-    return " ".join(parts)
+def template_new_call(inc: dict, style: str = "professional", agency: str = "") -> str:
+    """Deterministic announcement built only from stored incident fields (varied realistic wording)."""
+    from dispatch.phrases import new_call_broadcast
+    return new_call_broadcast(inc, style=style, guild_id=inc.get("guild_id"), agency=agency)
 
 
 def _contains_facts(text: str, inc: dict) -> bool:
@@ -154,9 +132,10 @@ def _contains_facts(text: str, inc: dict) -> bool:
     return True
 
 
-async def announcement_for_new_call(ai: Optional[AIManager], guild_id: int, inc: dict, use_ai: bool = True) -> tuple[str, str]:
+async def announcement_for_new_call(ai: Optional[AIManager], guild_id: int, inc: dict, use_ai: bool = True,
+                                    style: str = "professional", agency: str = "") -> tuple[str, str]:
     """Return (text, source). AI wording is only used if it preserves every real fact."""
-    template = template_new_call(inc)
+    template = template_new_call(inc, style, agency)
     if ai is None or not use_ai:
         return template, "template"
     prompt = (

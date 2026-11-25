@@ -17,6 +17,7 @@ class SecretStore:
     def __init__(self, db: Database, secret_key: str, key_file: Path):
         self.db = db
         self._fernet = Fernet(self._load_key(secret_key, key_file))
+        self._cache: dict[tuple[int, str], Optional[str]] = {}  # decrypted values; this process is the only writer
 
     @staticmethod
     def _load_key(secret_key: str, key_file: Path) -> bytes:
@@ -36,6 +37,7 @@ class SecretStore:
     async def set(self, guild_id: int, name: str, value: str, actor_id: Optional[int] = None) -> None:
         token = self._fernet.encrypt(value.encode()).decode()
         register_secret(value)
+        self._cache[(guild_id, name)] = value
         await self.db.execute(
             "INSERT INTO secrets(guild_id, name, ciphertext, updated_by, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now')) "
             "ON CONFLICT(guild_id, name) DO UPDATE SET ciphertext = excluded.ciphertext, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
@@ -43,8 +45,11 @@ class SecretStore:
         )
 
     async def get(self, guild_id: int, name: str) -> Optional[str]:
+        if (guild_id, name) in self._cache:
+            return self._cache[(guild_id, name)]
         row = await self.db.fetchone("SELECT ciphertext FROM secrets WHERE guild_id = ? AND name = ?", (guild_id, name))
         if row is None:
+            self._cache[(guild_id, name)] = None
             return None
         try:
             value = self._fernet.decrypt(row["ciphertext"].encode()).decode()
@@ -52,10 +57,19 @@ class SecretStore:
             log.error("Stored secret %s for guild %s could not be decrypted (SECRET_KEY changed?)", name, guild_id)
             return None
         register_secret(value)
+        self._cache[(guild_id, name)] = value
         return value
 
     async def delete(self, guild_id: int, name: str) -> None:
+        self._cache.pop((guild_id, name), None)
         await self.db.execute("DELETE FROM secrets WHERE guild_id = ? AND name = ?", (guild_id, name))
+        self._cache.pop((guild_id, name), None)
+
+    async def delete_prefix(self, guild_id: int, prefix: str) -> int:
+        rows = await self.db.fetchall("SELECT name FROM secrets WHERE guild_id = ? AND name LIKE ?", (guild_id, prefix + "%"))
+        for r in rows:
+            await self.delete(guild_id, r["name"])
+        return len(rows)
 
     async def exists(self, guild_id: int, name: str) -> bool:
         return await self.db.fetchone("SELECT 1 FROM secrets WHERE guild_id = ? AND name = ?", (guild_id, name)) is not None

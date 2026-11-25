@@ -46,6 +46,22 @@ def _path(name: str, default: Path) -> Path:
     return p if p.is_absolute() else (BASE_DIR / p)
 
 
+def _catalog_env() -> dict:
+    out = {}
+    try:
+        from ai.providers.catalog import CATALOG
+    except Exception:  # pragma: no cover
+        return out
+    for spec in CATALOG:
+        if spec.name in {"gemini", "ollama", "openai_compat"}:
+            continue  # configured by the dedicated fields above
+        out[spec.name] = {"api_key": _str(spec.key_env), "model": _str(spec.model_env) or spec.default_model,
+                          "account_id": _str("CLOUDFLARE_ACCOUNT_ID") if spec.needs_account_id else ""}
+    if not out.get("huggingface", {}).get("api_key") and _str("HF_TOKEN"):
+        out.setdefault("huggingface", {})["api_key"] = _str("HF_TOKEN")
+    return out
+
+
 @dataclass
 class Settings:
     # Discord
@@ -61,6 +77,10 @@ class Settings:
     openai_compat_base_url: str = field(default_factory=lambda: _str("OPENAI_COMPAT_BASE_URL"))
     openai_compat_api_key: str = field(default_factory=lambda: _str("OPENAI_COMPAT_API_KEY"))
     openai_compat_model: str = field(default_factory=lambda: _str("OPENAI_COMPAT_MODEL"))
+
+    # Every provider in ai/providers/catalog.py reads <NAME>_API_KEY / <NAME>_MODEL from .env (optional;
+    # administrators can also set their own keys per server with /ai-provider key).
+    provider_keys: dict = field(default_factory=lambda: _catalog_env())
 
     # ER:LC
     erlc_server_key: str = field(default_factory=lambda: _str("ERLC_SERVER_KEY"))

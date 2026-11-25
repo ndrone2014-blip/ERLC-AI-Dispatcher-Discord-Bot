@@ -20,7 +20,7 @@ WARN = 0xD29922
 DANGER = 0xDA3633
 MUTED = 0x6E7681
 PRIORITY_COLOUR = {"low": 0x8B949E, "routine": 0x1F6FEB, "medium": 0xD29922, "high": 0xF0883E, "critical": 0xDA3633}
-FOOTER = "ER:LC AI Dispatch • Roleplay system — not a real emergency service"
+FOOTER = "Pulse Dispatch | ERLC"
 
 
 def bot_of(interaction: discord.Interaction) -> "DispatchBot":
@@ -92,7 +92,7 @@ def incident_embed(inc: dict, units: list[dict], *, notes: Optional[list[dict]] 
     colour = PRIORITY_COLOUR.get(inc.get("priority") or inc.get("ai_priority") or "", BRAND)
     if inc["status"] == "closed":
         colour = MUTED
-    title = f"Incident #{inc['number']} — {truncate(inc.get('nature') or 'Nature not provided', 80)}"
+    title = f"📁 Incident #{inc['number']} — {truncate(inc.get('nature') or 'Nature not provided', 80)}"
     e = discord.Embed(title=title, colour=colour)
     e.add_field(name="Verification", value=VERIFICATION_LABEL.get(inc["verification"], inc["verification"]), inline=True)
     e.add_field(name="Source", value=SOURCE_LABEL.get(inc["source"], inc["source"]), inline=True)
@@ -135,6 +135,8 @@ def incident_embed(inc: dict, units: list[dict], *, notes: Optional[list[dict]] 
     elif inc["verification"] == "unverified":
         e.description = "⚠️ **UNVERIFIED** — not detected through the ER:LC API."
     e.set_footer(text=FOOTER)
+    from database.models import parse_iso
+    e.timestamp = parse_iso(inc.get("updated_at") or inc.get("created_at"))
     return e
 
 

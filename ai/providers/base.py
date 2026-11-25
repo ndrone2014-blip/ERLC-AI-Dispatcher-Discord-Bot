@@ -53,8 +53,12 @@ class AIProvider:
                        max_tokens: int = 600, temperature: float = 0.3, timeout: float = 20.0) -> AIResponse:
         raise NotImplementedError
 
-    async def list_models(self) -> list[str]:
+    async def list_models(self, **credentials) -> list[str]:
         return [self.default_model]
+
+    def ready_with(self, api_key: Optional[str] = None, account_id: Optional[str] = None, base_url: Optional[str] = None) -> bool:
+        """Would this provider work with these (per-guild) credentials? Default: only env configuration counts."""
+        return self.configured
 
     def info(self) -> ProviderInfo:
         return ProviderInfo(self.name, self.label, self.configured, self.default_model)

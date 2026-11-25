@@ -23,6 +23,8 @@ def _scrub(detail: Any) -> Any:
 class AuditLog:
     def __init__(self, db: Database):
         self.db = db
+        # Called (as background tasks) after every record: used by the Discord log channel for admin changes.
+        self.listeners: list = []
 
     async def record(
         self,
@@ -38,6 +40,11 @@ class AuditLog:
             "INSERT INTO audit_log(guild_id, actor_id, action, target, detail) VALUES (?, ?, ?, ?, ?)",
             (guild_id, actor_id, action, target, dumps(safe) if safe is not None else None),
         )
+        if self.listeners and guild_id is not None:
+            import asyncio
+            for fn in list(self.listeners):
+                task = asyncio.create_task(fn(guild_id, actor_id, action, target, safe))
+                task.add_done_callback(lambda t: t.exception() and log.warning("Audit listener failed: %s", t.exception()))
 
     async def recent(self, guild_id: int, limit: int = 15) -> list[dict]:
         rows = await self.db.fetchall(

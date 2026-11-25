@@ -39,6 +39,13 @@ DEFAULT_SETTINGS = {
     "assessment_timeout_s": 6,
     "stale_call_s": 900,
     "allow_unverified_reports": True,
+    # Thanksgiving Update
+    "response_style": "professional",        # professional | concise | detailed (see dispatch.phrases.STYLES)
+    "agency_name": "",                       # e.g. "Liberty County Dispatch" - used in radio phrasing
+    "duplicate_window_s": 1800,              # reports matching an active incident within this window are merged
+    "merge_duplicates": True,
+    "text_dispatch_enabled": True,           # natural-language dispatch in the configured dispatch channel
+    "follow_up_questions": True,             # ask for missing location / nature instead of guessing
 }
 
 
@@ -82,14 +89,15 @@ class DispatchCore:
         availability = await self.units.availability_summary(guild_id)
         notes = [n["detail"].get("note", "") for n in await self.incidents.notes(inc["id"])]
         timeout = float(await self.setting(guild_id, "assessment_timeout_s"))
+        custom = await self.db.get_config(guild_id, "custom_categories", []) or []
         try:
             return await asyncio.wait_for(
                 assess_incident(self.ai if use_ai else None, guild_id, inc, departments=departments, assigned_units=assigned,
-                                availability=availability, notes=notes), timeout=timeout)
+                                availability=availability, notes=notes, custom=custom), timeout=timeout)
         except asyncio.TimeoutError:
             log.warning("AI assessment for incident #%s timed out after %ss; using rule-based assessment", inc["number"], timeout)
             return await assess_incident(None, guild_id, inc, departments=departments, assigned_units=assigned,
-                                         availability=availability, notes=notes)
+                                         availability=availability, notes=notes, custom=custom)
 
     async def handle_new_incident(self, incident_id: int, *, speak: bool = True, delayed: bool = False,
                                   skip_reason: str = "Backlog call found on first sync; recorded and shown without voice announcement") -> dict:
@@ -100,12 +108,15 @@ class DispatchCore:
         _, inc = await self.incidents.apply_assessment(incident_id, assessment, approval_threshold=threshold, reason="initial assessment")
         if speak:
             use_ai = bool(await self.setting(inc["guild_id"], "ai_announcement_wording"))
+            style = await self.setting(inc["guild_id"], "response_style")
+            agency = await self.setting(inc["guild_id"], "agency_name")
             try:
                 text, wording_source = await asyncio.wait_for(
-                    announcement_for_new_call(self.ai, inc["guild_id"], inc, use_ai=use_ai), timeout=3.5)
+                    announcement_for_new_call(self.ai, inc["guild_id"], inc, use_ai=use_ai, style=style, agency=agency),
+                    timeout=3.5)
             except asyncio.TimeoutError:
                 from ai.assessment import template_new_call
-                text, wording_source = template_new_call(inc), "template"
+                text, wording_source = template_new_call(inc, style, agency), "template"
             if delayed:
                 text = "Delayed call notice. " + text
             await self.announcements.enqueue(inc["guild_id"], "new_911", text, dedupe_key=f"new911:{incident_id}",
@@ -154,6 +165,59 @@ class DispatchCore:
             caller_display=caller or "Anonymous", category=category or None, requested_department=requested_department or None,
             created_by=user_id)
         return await self.handle_new_incident(inc["id"])
+
+    async def find_duplicate(self, guild_id: int, *, category: Optional[str], location: Optional[str],
+                             nature: Optional[str] = None) -> Optional[dict]:
+        """An active incident that is very likely the same event (same kind of call at the same place)."""
+        from . import nlu
+        if not location or not await self.setting(guild_id, "merge_duplicates"):
+            return None
+        window = int(await self.setting(guild_id, "duplicate_window_s"))
+        family = {"Traffic collision": "collision", "Multi-vehicle collision": "collision",
+                  "Robbery": "robbery", "Major robbery": "robbery", "Armed subject": "weapon",
+                  "Shots fired / shooting": "weapon"}
+        if not category and not nature:
+            return None  # never merge on location alone: two different emergencies can happen at one place
+        want = family.get(category or "", category)
+        for inc in await self.incidents.list_active(guild_id):
+            created = parse_iso(inc["created_at"])
+            if created is None or (utcnow() - created).total_seconds() > window:
+                continue
+            it = nlu.classify(f"{inc.get('nature') or ''} {inc.get('category') or ''} {inc.get('description') or ''}")
+            have_cat = it.category if it else None
+            have = family.get(have_cat or "", have_cat)
+            if want and have and want != have:
+                continue
+            if not want and nature and inc.get("nature") and nature.lower() != inc["nature"].lower():
+                continue
+            if nlu.locations_match(location, inc.get("location")):
+                return inc
+        return None
+
+    async def report_incident(self, guild_id: int, user_id: int, *, text: str, caller: str,
+                              location: Optional[str] = None, analysis=None, category: Optional[str] = None,
+                              nature: Optional[str] = None) -> tuple[dict, bool]:
+        """Create an incident from a natural-language report, or merge it into a matching active one.
+
+        Returns (incident, merged_into_existing). Reports from Discord are always UNVERIFIED.
+        """
+        from . import nlu
+        a = analysis or nlu.analyze(text)
+        loc = location or a.location
+        category = category or a.category
+        nature = nature or a.nature
+        dup = await self.find_duplicate(guild_id, category=category, location=loc, nature=nature)
+        if dup:
+            await self.incidents.add_note(dup["id"], user_id, f"Additional caller ({caller}): {text[:600]}", author=caller)
+            await self.incidents.add_history(dup, "duplicate_merged", user_id, text=text[:300])
+            if self.ai is not None:
+                asyncio.create_task(self._ai_followup(dup["id"]))
+            else:
+                asyncio.create_task(self.reassess(dup["id"], reason="Additional caller"))
+            return dup, True
+        inc = await self.create_discord_call(guild_id, user_id, caller=caller, location=loc or "",
+                                             category=nature or category or "", description=text[:1000])
+        return inc, False
 
     async def create_manual_incident(self, guild_id: int, user_id: int, *, nature: str, location: str, description: str = "",
                                      reporter: str = "") -> dict:
@@ -234,7 +298,9 @@ class DispatchCore:
             if await self.announcements.has_queued(inc["id"], ("new_911", "repeat")):
                 continue
             n = plays  # repeat number
-            text = (f"Dispatch repeating, incident {inc['number']} is still awaiting a unit. "
+            from .phrases import pick
+            lead = pick(guild_id, "repeat", ["Dispatch repeating,", "Second call,", "Still holding,"])
+            text = (f"{lead} incident {inc['number']} is still awaiting a unit. "
                     f"{PRIORITY_LABEL.get(inc.get('priority') or '', '')} priority. Location: {inc.get('location') or 'unavailable'}. "
                     f"Nature: {inc.get('nature') or 'not provided'}. Any available unit, please respond.")
             if inc["source"] == "test":

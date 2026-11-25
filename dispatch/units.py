@@ -42,13 +42,22 @@ class UnitService:
                     "INSERT OR IGNORE INTO status_codes(guild_id, code, label, availability, sort) VALUES (?, ?, ?, ?, ?)",
                     (guild_id, code, label, avail, sort),
                 )
-            await self.db.set_config(guild_id, "status_defaults_version", 2)
-        elif int(await self.db.get_config(guild_id, "status_defaults_version", 1) or 1) < 2:
-            # v2 added 10-11 Traffic Stop. Added once; if an admin deletes it later it stays deleted.
-            await self.db.execute(
-                "INSERT OR IGNORE INTO status_codes(guild_id, code, label, availability, sort) VALUES (?, '10-11', 'Traffic Stop', 'assigned', 3)",
-                (guild_id,))
-            await self.db.set_config(guild_id, "status_defaults_version", 2)
+            await self.db.set_config(guild_id, "status_defaults_version", 3)
+        else:
+            version = int(await self.db.get_config(guild_id, "status_defaults_version", 1) or 1)
+            if version < 2:
+                # v2 added 10-11 Traffic Stop. Added once; if an admin deletes it later it stays deleted.
+                await self.db.execute(
+                    "INSERT OR IGNORE INTO status_codes(guild_id, code, label, availability, sort) VALUES (?, '10-11', 'Traffic Stop', 'assigned', 3)",
+                    (guild_id,))
+            if version < 3:
+                # v3 (Thanksgiving Update) added Returning to Station and Busy.
+                for code, label, avail, sort in (("10-19", "Returning to Station", "unavailable", 5), ("10-6", "Busy", "unavailable", 5)):
+                    if not await self.db.fetchone("SELECT 1 FROM status_codes WHERE guild_id = ? AND upper(label) = upper(?)", (guild_id, label)):
+                        await self.db.execute(
+                            "INSERT OR IGNORE INTO status_codes(guild_id, code, label, availability, sort) VALUES (?, ?, ?, ?, ?)",
+                            (guild_id, code, label, avail, sort))
+                await self.db.set_config(guild_id, "status_defaults_version", 3)
 
     # ------------------------------------------------------------------ departments
     async def departments(self, guild_id: int, active_only: bool = True) -> list[dict]:
@@ -64,8 +73,8 @@ class UnitService:
     async def add_department(self, guild_id: int, name: str, code: str, kind: str, actor_id: int, role_id: Optional[int] = None) -> dict:
         name = clean_text(name, 60, required=True, field="Department name")
         code = clean_text(code, 8, required=True, field="Short code").upper().replace(" ", "")
-        if kind not in {"law", "fire", "ems", "supervisor", "dispatch", "other"}:
-            raise ValidationError("Department type must be law, fire, ems, supervisor, dispatch or other.")
+        if kind not in {"law", "fire", "ems", "supervisor", "special", "dispatch", "other"}:
+            raise ValidationError("Department type must be law, fire, ems, supervisor, special, dispatch or other.")
         existing = await self.department_by_code(guild_id, code)
         if existing:
             await self.db.execute("UPDATE departments SET name = ?, kind = ?, active = 1, role_id = COALESCE(?, role_id) WHERE id = ?",
@@ -245,7 +254,8 @@ class UnitService:
             (unit["guild_id"], unit_id, officer_id, unit["status_code"], sc["code"]),
         )
         await self.audit.record(unit["guild_id"], actor_id, "unit.status", unit["callsign"], {"old": unit["status_code"], "new": sc["code"]})
-        await self.bus.publish(ev.UNIT_UPDATED, unit["guild_id"], unit_id=unit_id)
+        await self.bus.publish(ev.UNIT_UPDATED, unit["guild_id"], unit_id=unit_id, old_code=unit["status_code"], new_code=sc["code"],
+                               actor_id=actor_id)
         await self.bus.publish(ev.ACTIVITY, unit["guild_id"], text=f"{unit['callsign']} is now {sc['code']} ({sc['label']})")
         return await self.unit(unit_id)
 

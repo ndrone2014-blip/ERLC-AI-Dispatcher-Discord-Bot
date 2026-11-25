@@ -26,13 +26,17 @@ class GeminiProvider(AIProvider):
     def configured(self) -> bool:
         return bool(self.api_key)
 
-    def _headers(self) -> dict:
-        return {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
+    def ready_with(self, api_key: Optional[str], account_id: Optional[str] = None, base_url: Optional[str] = None) -> bool:
+        return bool(api_key or self.api_key)
+
+    def _headers(self, api_key: Optional[str] = None) -> dict:
+        return {"x-goog-api-key": api_key or self.api_key, "Content-Type": "application/json"}
 
     async def generate(self, *, system: str, prompt: str, model: Optional[str] = None, json_mode: bool = False,
-                       max_tokens: int = 600, temperature: float = 0.3, timeout: float = 20.0) -> AIResponse:
-        if not self.configured:
-            raise ProviderError("GEMINI_API_KEY is not set", kind="auth")
+                       max_tokens: int = 600, temperature: float = 0.3, timeout: float = 20.0,
+                       api_key: Optional[str] = None, **_: object) -> AIResponse:
+        if not (api_key or self.configured):
+            raise ProviderError("No Gemini API key is set", kind="auth")
         model = (model or self.default_model).removeprefix("models/")
         gen_cfg: dict = {"temperature": temperature, "maxOutputTokens": max_tokens}
         if json_mode:
@@ -49,7 +53,7 @@ class GeminiProvider(AIProvider):
         started = time.monotonic()
         session: aiohttp.ClientSession = self._session_factory()
         try:
-            async with session.post(url, json=body, headers=self._headers(),
+            async with session.post(url, json=body, headers=self._headers(api_key),
                                     timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 data = await resp.json(content_type=None)
                 if resp.status != 200:
@@ -72,12 +76,12 @@ class GeminiProvider(AIProvider):
         return AIResponse(text=text, provider=self.name, model=model, tokens_in=usage.get("promptTokenCount"),
                           tokens_out=usage.get("candidatesTokenCount"), latency_ms=latency)
 
-    async def list_models(self) -> list[str]:
-        if not self.configured:
+    async def list_models(self, api_key: Optional[str] = None, **_: object) -> list[str]:
+        if not (api_key or self.configured):
             return [self.default_model]
         session: aiohttp.ClientSession = self._session_factory()
         try:
-            async with session.get(f"{API_BASE}/models", params={"pageSize": "100"}, headers=self._headers(),
+            async with session.get(f"{API_BASE}/models", params={"pageSize": "100"}, headers=self._headers(api_key),
                                    timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 data = await resp.json(content_type=None)
                 if resp.status != 200:

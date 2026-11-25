@@ -8,12 +8,32 @@ import re
 from pathlib import Path
 
 _SECRET_PATTERNS: list[re.Pattern] = []
+_SECRET_VALUES: set[str] = set()
 
 
 def register_secret(value: str) -> None:
-    """Any registered secret value is replaced with *** in every log line."""
-    if value and len(value) >= 6:
+    """Any registered secret value is replaced with *** in every log line (and in redact())."""
+    if value and len(value) >= 6 and value not in _SECRET_VALUES:
+        _SECRET_VALUES.add(value)
         _SECRET_PATTERNS.append(re.compile(re.escape(value)))
+
+
+_KEYLIKE = [
+    re.compile(r"(?i)(server-key|authorization|bearer|x-goog-api-key|api[_-]?key|token|secret)(['\"]?\s*[:=]?\s*['\"]?)([A-Za-z0-9._\-]{8,})"),
+    re.compile(r"(?i)([?&]key=)([^&\s]+)"),
+    re.compile(r"\b(sk-or-v1-|sk-|gsk_|csk-|hf_|nvapi-|AIza|ghp_|github_pat_)[A-Za-z0-9_\-]{8,}"),
+]
+
+
+def redact(text: object) -> str:
+    """Remove registered secrets and anything that looks like an API key. Use before showing errors in Discord."""
+    msg = str(text or "")
+    msg = _KEYLIKE[2].sub("***", msg)
+    msg = _KEYLIKE[0].sub(lambda m: m.group(1) + m.group(2) + "***", msg)
+    msg = _KEYLIKE[1].sub(lambda m: m.group(1) + "***", msg)
+    for pat in _SECRET_PATTERNS:
+        msg = pat.sub("***", msg)
+    return msg
 
 
 class RedactingFilter(logging.Filter):

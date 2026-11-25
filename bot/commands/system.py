@@ -7,11 +7,16 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.ui import BRAND, reply, require
+from bot.ui import reply, require
 from panels import ai_config, statistics
 
 if TYPE_CHECKING:
     from bot.client import DispatchBot
+
+
+async def _provider_ac(interaction: discord.Interaction, current: str):
+    from bot.commands.pulse_ai import provider_autocomplete
+    return await provider_autocomplete(interaction, current)
 
 
 class SystemCog(commands.Cog):
@@ -130,17 +135,16 @@ class SystemCog(commands.Cog):
             lines.append(f"{'🟢' if ok else '🔴'} {p['label']} — {msg[:300]}")
         await interaction.followup.send("\n".join(lines), ephemeral=True)
 
-    @ai.command(name="primary", description="Switch the primary AI provider")
-    @app_commands.choices(provider=[app_commands.Choice(name="Google Gemini", value="gemini"),
-                                    app_commands.Choice(name="Ollama (local)", value="ollama"),
-                                    app_commands.Choice(name="OpenAI-compatible", value="openai_compat")])
-    async def ai_primary(self, interaction: discord.Interaction, provider: app_commands.Choice[str],
-                         secondary: Optional[str] = None):
+    @ai.command(name="primary", description="Set the manual try order: primary and secondary AI provider")
+    @app_commands.autocomplete(provider=_provider_ac, secondary=_provider_ac)
+    async def ai_primary(self, interaction: discord.Interaction, provider: str, secondary: Optional[str] = None):
         if not await require(interaction, "admin.ai"):
             return
-        await self.bot.ai.set_order(interaction.guild_id, provider.value, secondary)
-        await self.bot.audit.record(interaction.guild_id, interaction.user.id, "ai.primary", provider.value)
-        await reply(interaction, f"Primary AI provider: **{provider.name}**.")
+        if provider not in self.bot.ai.providers or (secondary and secondary not in self.bot.ai.providers):
+            return await reply(interaction, "Unknown provider — pick one from the list.", error=True)
+        await self.bot.ai.set_order(interaction.guild_id, provider, secondary)
+        await self.bot.audit.record(interaction.guild_id, interaction.user.id, "ai.primary", provider)
+        await reply(interaction, f"Primary AI provider: **{self.bot.ai.providers[provider].label}** (manual order mode).")
 
     @app_commands.command(name="stats", description="Dispatch statistics")
     @app_commands.guild_only()
@@ -159,18 +163,12 @@ class SystemCog(commands.Cog):
         ok, msg, _ = await self.bot.sync.test_connection(interaction.guild_id)
         await interaction.followup.send(("🟢 " if ok else "🔴 ") + msg, ephemeral=True)
 
-    @app_commands.command(name="help", description="How to use the dispatch system")
+    @app_commands.command(name="help", description="Pulse Dispatch commands by category")
     async def help(self, interaction: discord.Interaction):
-        e = discord.Embed(title="📡 ER:LC AI Dispatch — Help", colour=BRAND, description=(
-            "**Everything is in the panels** created by `/setup run`.\n\n"
-            "**Officers:** register on `#unit-board` (or `/unit register`), set **10-8**, attach to calls from `#active-calls`. "
-            "In the 📻 radio channel say *“Dispatch, I'm 10-8”*, *“Dispatch, attach me to incident 104”*, "
-            "*“Dispatch, what calls are active?”*. Same in text with `/dispatch ask`.\n"
-            "**Citizens:** `#citizen-services` or `/911` (roleplay only — not a real emergency service).\n"
-            "**Supervisors:** approve/override AI priorities from alerts in `#department-notices`.\n"
-            "**Admins:** `#dispatch-control` → ER:LC key, AI providers, voice, roles, departments, backups, test mode.\n\n"
-            "In-game 911 calls are detected automatically through the official ER:LC API and announced in voice."))
-        await reply(interaction, embed=e)
+        from bot import embeds as E
+        from bot.commands.pulse_info import HelpView, help_embed
+        look = await E.look_for(self.bot, interaction.guild_id)
+        await reply(interaction, embed=help_embed("home", look), view=HelpView(look))
 
 
 async def setup(bot: "DispatchBot"):

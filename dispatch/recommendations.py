@@ -42,13 +42,41 @@ ESCALATORS = [
 ]
 
 
-def rule_based_assessment(text: str, assigned_count: int = 0, requested_department: Optional[str] = None) -> dict:
-    t = (text or "").lower()
+def match_custom(text_normalized: str, custom: Optional[list[dict]]) -> Optional[dict]:
+    """Server-defined incident categories (/settings category-add) take precedence over the built-in types."""
+    for rule in custom or []:
+        for kw in rule.get("keywords") or []:
+            kw = str(kw).strip().lower()
+            if kw and re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", text_normalized):
+                return rule
+    return None
+
+
+def rule_based_assessment(text: str, assigned_count: int = 0, requested_department: Optional[str] = None,
+                          custom: Optional[list[dict]] = None) -> dict:
+    from . import nlu
+    analysis = nlu.analyze(text or "")
+    # Normalised text (abbreviations expanded, spelling corrected) so the escalators below see "gunshot wound" for "gsw".
+    t = analysis.normalized or (text or "").lower()
     match = None
-    for pattern, category, prio, units, kinds, sup in RULES:
-        if re.search(pattern, t):
-            match = (category, prio, units, set(kinds), sup)
-            break
+    rule = match_custom(t, custom)
+    if rule is not None:
+        prio_c = rule.get("priority") if rule.get("priority") in PRIORITIES else "routine"
+        match = (str(rule.get("category"))[:80], prio_c, max(1, min(int(rule.get("units") or 1), 10)),
+                 set(rule.get("kinds") or ["law"]), PRIORITY_RANK[prio_c] >= PRIORITY_RANK["high"])
+    elif analysis.incident_type is not None:
+        it = analysis.incident_type
+        match = (it.category, it.priority, it.units, set(it.kinds), it.supervisor)
+    else:
+        for pattern, category, prio, units, kinds, sup in RULES:
+            if re.search(pattern, t) or re.search(pattern, (text or "").lower()):
+                match = (category, prio, units, set(kinds), sup)
+                break
+    if match is not None:
+        # Departments the caller explicitly asked for, and EMS whenever injuries are mentioned.
+        extra = set(analysis.requested_kinds) | ({"ems"} if analysis.injuries else set())
+        if extra - match[3]:
+            match = (match[0], match[1], match[2], match[3] | extra, match[4])
     if match is None:
         category, prio, units, kinds, sup = ("Unclassified call", "routine", 1, {"law"}, False)
         uncertain = True
@@ -56,15 +84,18 @@ def rule_based_assessment(text: str, assigned_count: int = 0, requested_departme
         category, prio, units, kinds, sup = match
         uncertain = False
     for pattern, prio_bump, unit_bump in ESCALATORS:
-        if re.search(pattern, t) and category not in {"Shots fired / shooting", "Hostage / kidnapping"}:
+        if re.search(pattern, t) and category not in {"Shots fired / shooting", "Hostage / kidnapping", "Officer needs assistance"}:
             prio = PRIORITIES[min(len(PRIORITIES) - 1, PRIORITY_RANK[prio] + prio_bump)]
             units += unit_bump
+    if analysis.injuries and category in {"Traffic collision", "Assault / disturbance"} and PRIORITY_RANK[prio] < PRIORITY_RANK["high"]:
+        prio = "high"  # injuries reported: EMS is required and the call is upgraded
     if PRIORITY_RANK[prio] >= PRIORITY_RANK["high"] and units >= 3:
         sup = True
     if not t.strip():
         uncertain = True
     reasoning = (
-        f"Keyword assessment classified the call as '{category}'."
+        f"Local language assessment classified the call as '{category}'"
+        + (" with injuries reported" if analysis.injuries else "") + "."
         if not uncertain else "The reported description is unclear; defaulting to a routine single-unit response until more information is available."
     )
     return {
@@ -100,8 +131,9 @@ def _resolve_departments(raw: Any, kinds: list[str], departments: list[dict], re
         elif s.lower() in by_name:
             add(by_name[s.lower()]["short_code"])
         else:
-            for k in ("law", "fire", "ems", "supervisor"):
-                if s.lower() in {k, {"law": "police", "fire": "fire department", "ems": "medical", "supervisor": "supervisors"}[k]}:
+            for k in ("law", "fire", "ems", "supervisor", "special"):
+                if s.lower() in {k, {"law": "police", "fire": "fire department", "ems": "medical", "supervisor": "supervisors",
+                                     "special": "swat"}[k]}:
                     kinds = list(kinds) + [k]
     if requested and requested.upper() in by_code:
         add(by_code[requested.upper()]["short_code"])
@@ -126,7 +158,7 @@ def normalize_assessment(raw: dict, departments: list[dict], *, assigned_count: 
     except (TypeError, ValueError):
         units = 1
     units = max(1, min(units, 10))
-    kinds = [k for k in raw.get("department_kinds", []) if k in {"law", "fire", "ems", "supervisor"}]
+    kinds = [k for k in raw.get("department_kinds", []) if k in {"law", "fire", "ems", "supervisor", "special"}]
     if raw.get("supervisor_notification"):
         kinds.append("supervisor")
     deps = _resolve_departments(raw.get("departments"), kinds, departments, requested_department)
@@ -138,7 +170,8 @@ def normalize_assessment(raw: dict, departments: list[dict], *, assigned_count: 
     kinds_needed = {d["kind"] for d in departments if d["short_code"] in deps}
     for kind in sorted(kinds_needed):
         if kind in available_by_kind and available_by_kind[kind] == 0:
-            label = {"law": "law-enforcement", "fire": "fire", "ems": "EMS", "supervisor": "supervisor"}.get(kind, kind)
+            label = {"law": "law-enforcement", "fire": "fire", "ems": "EMS", "supervisor": "supervisor",
+                     "special": "specialized"}.get(kind, kind)
             notes.append(f"No {label} units currently available.")
     return {
         "category": str(raw.get("category") or "Unclassified call")[:80],

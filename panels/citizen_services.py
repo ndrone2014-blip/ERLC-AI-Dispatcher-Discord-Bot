@@ -82,12 +82,27 @@ class Call911Modal(discord.ui.Modal, title="911 Call (roleplay)"):
                 requested = d["short_code"]
                 break
         await interaction.response.defer(ephemeral=True, thinking=True)
+        from bot import embeds as E
+        from dispatch import nlu, phrases
+        category = clean_text(self.category.value, 60)
+        caller = clean_text(self.caller.value, 50) or "Anonymous"
+        analysis = nlu.analyze(f"{category}. {desc} {extra}")
+        dup = await bot.core.find_duplicate(interaction.guild_id, category=analysis.category, location=loc, nature=analysis.nature)
+        look = await E.look_for(bot, interaction.guild_id)
+        if dup:
+            await bot.core.incidents.add_note(dup["id"], interaction.user.id, f"Additional 911 caller ({caller}): {category} — {desc}"[:800],
+                                              author=caller)
+            await bot.core.incidents.add_history(dup, "duplicate_merged", interaction.user.id, text=desc[:300])
+            card = E.call_received(dup, "", look=look, merged=True)
+            card.description = phrases.duplicate_reply(dup, guild_id=interaction.guild_id)
+            return await interaction.followup.send(embed=card, ephemeral=True)
         inc = await bot.core.create_discord_call(
-            interaction.guild_id, interaction.user.id, caller=clean_text(self.caller.value, 50) or "Anonymous", location=loc,
-            category=clean_text(self.category.value, 60), description=desc, requested_department=requested, extra=extra)
-        await interaction.followup.send(f"🚨 Your 911 call was received as incident **#{inc['number']}**. "
-                                        f"It is marked *unverified* because it was submitted through Discord, not in-game.",
-                                        ephemeral=True)
+            interaction.guild_id, interaction.user.id, caller=caller, location=loc,
+            category=category, description=desc, requested_department=requested, extra=extra)
+        style = await bot.core.setting(interaction.guild_id, "response_style")
+        card = E.call_received(inc, phrases.call_received_reply(inc, style=style, guild_id=interaction.guild_id), look=look)
+        card.add_field(name="Note", value="Marked *unverified* because it was submitted through Discord, not in-game.", inline=False)
+        await interaction.followup.send(embed=card, ephemeral=True)
 
 
 class ReportModal(discord.ui.Modal, title="Police report (private)"):

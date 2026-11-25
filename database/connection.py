@@ -26,6 +26,9 @@ class Database:
         self.path = str(path)
         self._conn: Optional[aiosqlite.Connection] = None
         self._tx_lock = asyncio.Lock()
+        # Write-through cache of guild_config. This process is the only writer, so it is always exact;
+        # it removes a database round-trip from every permission check / setting lookup.
+        self._config_cache: dict[tuple[int, str], str] = {}
 
     @property
     def conn(self) -> aiosqlite.Connection:
@@ -130,16 +133,31 @@ class Database:
             return int(row[0])
 
     # ------------------------------------------------------------------ guild config
+    _MISSING = "\x00missing"
+
     async def get_config(self, guild_id: int, key: str, default: Any = None) -> Any:
-        row = await self.fetchone("SELECT value FROM guild_config WHERE guild_id = ? AND key = ?", (guild_id, key))
-        if row is None:
+        ck = (guild_id, key)
+        raw = self._config_cache.get(ck)
+        if raw is None:
+            row = await self.fetchone("SELECT value FROM guild_config WHERE guild_id = ? AND key = ?", (guild_id, key))
+            raw = row["value"] if row is not None else self._MISSING
+            if len(self._config_cache) > 20000:
+                self._config_cache.clear()
+            self._config_cache[ck] = raw
+        if raw == self._MISSING:
             return default
         try:
-            return json.loads(row["value"])
+            return json.loads(raw)  # a fresh object every call: callers may mutate what they get
         except (TypeError, ValueError):
             return default
 
+    async def delete_config(self, guild_id: int, key: str) -> None:
+        self._config_cache.pop((guild_id, key), None)
+        await self.execute("DELETE FROM guild_config WHERE guild_id = ? AND key = ?", (guild_id, key))
+        self._config_cache.pop((guild_id, key), None)
+
     async def set_config(self, guild_id: int, key: str, value: Any) -> None:
+        self._config_cache[(guild_id, key)] = json.dumps(value)
         await self.execute(
             "INSERT INTO guild_config(guild_id, key, value, updated_at) VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now')) "
             "ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",

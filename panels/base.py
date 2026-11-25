@@ -159,7 +159,32 @@ class PanelManager:
             await self.refresh(guild_id, panel, force=force)
             await asyncio.sleep(0.3)
 
+    async def enabled_panels(self, guild_id: int) -> list[str]:
+        """Panels this server wants. Servers set up before the Thanksgiving Update keep every panel."""
+        chosen = await self.bot.db.get_config(guild_id, "enabled_panels")
+        if chosen is None:
+            return list(self.builders)
+        return [p for p in chosen if p in self.builders]
+
+    async def set_enabled(self, guild_id: int, panels: list[str]) -> None:
+        await self.bot.db.set_config(guild_id, "enabled_panels", [p for p in panels if p in self.builders])
+
+    async def remove(self, guild_id: int, panel: str) -> bool:
+        """Delete a panel message and forget it (used when a dashboard is disabled)."""
+        loc = await self.location(guild_id, panel)
+        await self.bot.db.execute("DELETE FROM panels WHERE guild_id = ? AND panel = ?", (guild_id, panel))
+        self._hashes.pop((guild_id, panel), None)
+        if loc:
+            ch = self.bot.get_channel(loc["channel_id"])
+            if ch is not None:
+                try:
+                    await ch.get_partial_message(loc["message_id"]).delete()
+                except discord.HTTPException:
+                    pass
+        return loc is not None
+
     async def missing(self, guild_id: int) -> list[str]:
         rows = await self.bot.db.fetchall("SELECT panel FROM panels WHERE guild_id = ?", (guild_id,))
         have = {r["panel"] for r in rows}
-        return [p for p in self.builders if p not in have]
+        wanted = await self.enabled_panels(guild_id)
+        return [p for p in wanted if p not in have]
