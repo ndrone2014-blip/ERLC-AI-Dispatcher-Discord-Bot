@@ -245,6 +245,24 @@ class IncidentService:
         await self.bus.publish(ev.ACTIVITY, inc["guild_id"], text=f"Incident #{inc['number']} closed")
         return await self.get(incident_id)
 
+    async def close_all(self, guild_id: int, actor_id: Optional[int], reason: Optional[str] = None) -> list[dict]:
+        """Close every open incident in a server and cancel their queued radio traffic (repeats, 911 reads,
+        escalations). Returns the incidents that were closed."""
+        closed: list[dict] = []
+        rows = await self.db.fetchall("SELECT id FROM incidents WHERE guild_id = ? AND status != 'closed' ORDER BY id", (guild_id,))
+        for r in rows:
+            try:
+                closed.append(await self.close(r["id"], actor_id, reason))
+            except IncidentError:
+                continue  # closed by someone else in the meantime
+        # Belt and braces: nothing incident-related left queued for this server.
+        await self.db.execute(
+            "UPDATE announcements SET status = 'cancelled', last_error = 'all incidents closed' WHERE guild_id = ? AND status = 'queued' "
+            "AND kind IN ('repeat', 'new_911', 'priority_change', 'unit_assignment', 'escalation')", (guild_id,))
+        if closed:
+            await self.audit.record(guild_id, actor_id, "incident.close_all", f"{len(closed)} incidents", {"reason": reason})
+        return closed
+
     async def mark_review(self, incident_id: int, actor_id: int, outcome: str, note: str = "") -> None:
         inc = await self.get(incident_id)
         if inc is None:

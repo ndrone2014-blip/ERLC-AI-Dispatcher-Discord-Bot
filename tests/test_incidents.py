@@ -205,3 +205,23 @@ async def test_persistence_across_restart(tmp_path):
     nxt = await c2.incidents.create(GUILD, source="manual", verification="unverified", nature="n")
     assert nxt["number"] == inc["number"] + 1
     await db2.close()
+
+
+@pytest.mark.asyncio
+async def test_close_all_closes_every_incident_and_cancels_repeats(core, db):
+    snap = snapshot([call(400), call(401, desc="Shots fired at the bank")])
+    await core.intake.process_snapshot(GUILD, snap)
+    await settle()
+    assert len(await core.incidents.list_active(GUILD)) == 2
+    assert await db.fetchval("SELECT COUNT(*) FROM announcements WHERE status = 'queued'") > 0
+    closed = await core.incidents.close_all(GUILD, 1, "End of session")
+    await settle()
+    assert len(closed) == 2
+    assert await core.incidents.list_active(GUILD) == []
+    assert await db.fetchval("SELECT COUNT(*) FROM announcements WHERE guild_id = ? AND status = 'queued' "
+                             "AND kind IN ('repeat','new_911','escalation')", (GUILD,)) == 0
+    assert await core.repeat_tick(GUILD) == 0
+    # Calls still listed in-game must not re-open as new incidents.
+    res = await core.intake.process_snapshot(GUILD, snap)
+    assert res.new_incidents == []
+    assert await core.incidents.close_all(GUILD, 1) == []

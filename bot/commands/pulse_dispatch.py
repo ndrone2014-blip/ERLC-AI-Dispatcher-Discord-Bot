@@ -1,4 +1,4 @@
-"""Dispatch commands (Thanksgiving Update): /incident-view /incident-update /incident-close /priority /broadcast."""
+"""Dispatch commands (Thanksgiving Update): /incident-view /incident-update /incident-close /incident-close-all /priority /broadcast."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
@@ -136,7 +136,32 @@ class PulseDispatchCog(commands.Cog):
                     + (f" This clears {len(units)} assigned unit(s)." if units else ""),
                     view=ConfirmView(interaction.user.id, do_close, confirm_label="Close incident"))
 
-    @app_commands.command(name="priority", description="Approve or change an incident's priority (supervisors)")
+    @app_commands.command(name="incident-close-all",
+                          description="Close ALL active incidents and stop their repeat announcements (asks for confirmation)")
+    @app_commands.guild_only()
+    @app_commands.describe(reason="Why everything is being closed (saved in each incident's history)")
+    async def incident_close_all(self, interaction: discord.Interaction, reason: Optional[str] = None):
+        if not await require(interaction, "incident.close"):
+            return
+        active = await self.bot.core.incidents.list_active(interaction.guild_id, limit=1000)
+        if not active:
+            return await reply(interaction, "There are no active incidents to close.", error=True)
+        why = clean_text(reason, 300) or "Bulk close (/incident-close-all)"
+
+        async def do_close_all(i: discord.Interaction):
+            await i.response.defer()
+            closed = await self.bot.core.incidents.close_all(i.guild_id, i.user.id, why)
+            nums = ", ".join(f"#{c['number']}" for c in closed[:25]) + (" …" if len(closed) > 25 else "")
+            await i.edit_original_response(
+                content=f"🔒 Closed **{len(closed)}** incident(s): {nums}\nQueued repeat announcements were cancelled.",
+                embed=None, view=None)
+
+        preview = ", ".join(f"#{inc['number']}" for inc in active[:25]) + (" …" if len(active) > 25 else "")
+        await reply(interaction, f"Close **all {len(active)} active incident(s)**? ({preview})\n"
+                                 "This clears every assigned unit and stops the bot repeating these calls.",
+                    view=ConfirmView(interaction.user.id, do_close_all, confirm_label=f"Close all {len(active)}"))
+
+    @app_commands.command(name="priority",description="Approve or change an incident's priority (supervisors)")
     @app_commands.guild_only()
     @app_commands.autocomplete(number=incident_autocomplete)
     @app_commands.choices(priority=PRIORITY_CHOICES)

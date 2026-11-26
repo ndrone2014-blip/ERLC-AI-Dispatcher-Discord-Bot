@@ -1,5 +1,11 @@
 # Changelog
 
+## 🔒 Close all incidents (2026-11-26)
+- **New `/incident-close-all`.** Closes every active incident at once (asks for confirmation, needs the same
+  permission as `/incident-close`). Assigned units are cleared and all queued radio traffic for those calls
+  (repeats, 911 reads, escalations) is cancelled, so the dispatcher stops repeating old calls. Calls still listed
+  in-game are not re-opened. An optional `reason` is saved in each incident's history.
+
 ## 🎙️ Busy voice channel fix (2026-11-25)
 - **Dispatch keeps answering in crowded calls.** Speech-to-text used to handle every clip from everyone in one line,
   so with many people talking, officers' "Dispatch, …" clips waited too long and were silently dropped.

@@ -144,13 +144,13 @@ See **[docs/VOICE.md](docs/VOICE.md)** for an important note about Discord's end
 
 | Category | Commands |
 |---|---|
-| **Dispatch** | `/dispatch ask\|notice\|skip` · `/911` · `/calls` · `/incident view\|create\|note\|priority\|close\|history` · `/incident-view` · `/incident-update` · `/incident-close` · `/priority` · `/bolo create\|list\|clear` · `/broadcast` · `/report file\|status\|view\|attach` · `/test call` |
+| **Dispatch** | `/dispatch ask\|notice\|skip` · `/911` · `/calls` · `/incident view\|create\|note\|priority\|close\|history` · `/incident-view` · `/incident-update` · `/incident-close` · `/incident-close-all` · `/priority` · `/bolo create\|list\|clear` · `/broadcast` · `/report file\|status\|view\|attach` · `/test call` |
 | **Units** | `/unit-register` · `/unit-status` · `/unit-assign` · `/unit-unassign` · `/unit-list` · `/available-units` · `/backup` · `/attach` · `/detach` · `/unit register\|status\|remove` · `/status` |
 | **Administration** | `/setup-guide` · `/setup run\|repair\|panel` · `/settings view\|response-style\|agency-name\|dispatch-channel\|follow-up-questions\|duplicates\|approval-threshold\|embed\|callsign-format\|category-add\|category-remove\|erlc-key` · `/dashboard status\|enable\|disable\|preset` · `/logs settings\|channel\|create\|toggle\|route\|view` · `/departments list\|add\|remove\|status-add\|status-remove` · `/permissions view\|map\|set` · `/reset-settings` |
 | **AI** | `/ai-status` · `/ai-provider list\|guide\|key\|remove-key\|prefer\|mode\|enable` · `/ai-test` · `/ai-model` · `/ai-failover` · `/ai status\|test\|primary` |
 | **Information** | `/help` · `/about` · `/statistics` · `/stats` · `/ping` · `/version` · `/erlc` · `/voice join\|leave\|listen\|mute\|test\|diagnose` |
 
-Destructive actions (`/incident-close`, `/reset-settings`) ask for confirmation. Permissions are enforced on every
+Destructive actions (`/incident-close`, `/incident-close-all`, `/reset-settings`) ask for confirmation. Permissions are enforced on every
 command and button; regular members can never change administrator settings.
 
 ## 10. AI providers (free-first)

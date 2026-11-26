@@ -21,7 +21,7 @@ HELP_SECTIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
     "dispatch": ("🚨 Dispatch", [
         ("/dispatch ask", "Talk to dispatch in plain language — report an emergency, set status, ask questions"),
         ("/911", "Submit a roleplay 911 call with a form"),
-        ("/incident-view · /incident-update · /incident-close", "View, update or close an incident"),
+        ("/incident-view · /incident-update · /incident-close · /incident-close-all", "View, update or close an incident (or close them all)"),
         ("/incident view|create|note|priority|close|history", "Full incident toolkit"),
         ("/calls", "All active incidents"),
         ("/priority", "Approve or change a priority (supervisors)"),
