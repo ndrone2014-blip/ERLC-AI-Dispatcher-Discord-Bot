@@ -85,6 +85,9 @@ Discord now shows the Netlify address to your staff.
 Start the bot (`start.bat`) **and** the tunnel (`ngrok http --url=something.ngrok-free.app 8080`). Netlify itself is
 always on. Pushing to GitHub redeploys the site automatically.
 
+**Tip:** put `NGROK_URL=something.ngrok-free.app` (no `https://`) in `.env` and `start.bat` opens the tunnel for you in
+its own window every time you start the bot. Keep that window open.
+
 ## Roblox "Sign in with Roblox" on Netlify
 
 Use the Netlify address for the Roblox redirect URL: `https://pulse-dispatch.netlify.app/auth/roblox/callback`
@@ -104,6 +107,8 @@ Use the Netlify address for the Roblox redirect URL: `https://pulse-dispatch.net
 | Problem | Fix |
 |---|---|
 | "The dashboard isn't connected to the bot yet" | Add `PULSE_BOT_URL` in Netlify and redeploy. |
+| "The tunnel (ngrok) isn't running" | Start ngrok again on the bot's PC (or set `NGROK_URL` in `.env` so `start.bat` does it). |
+| "The tunnel is running but the bot's dashboard isn't answering" | The bot isn't running, or its dashboard failed to start — the bot's console says why. Check the port matches (default 8080). |
 | "Can't reach the bot" | Start the bot **and** ngrok; check `PULSE_BOT_URL` matches your ngrok domain exactly. |
 | "Open the dashboard through its Netlify address" | `PULSE_PROXY_SECRET` (Netlify) and `DASHBOARD_PROXY_SECRET` (`.env`) don't match. Fix, redeploy, restart. |
 | "Discord did not accept the sign-in" | The Discord redirect must be exactly `https://YOUR-SITE.netlify.app/auth/callback`, and `DASHBOARD_PUBLIC_URL` must be your Netlify URL. |

@@ -31,6 +31,16 @@ export default async (request, context) => {
     return new Response(JSON.stringify({ error: "Can't reach the bot. Make sure the bot and its tunnel are running." }),
       { status: 502, headers: JSON_HEADERS });
   }
+  // Tunnel problems come back as ngrok's own HTML pages: turn them into a clear message for the dashboard.
+  const ngrokCode = upstream.headers.get("ngrok-error-code") || "";
+  const isHtml = (upstream.headers.get("content-type") || "").includes("text/html");
+  if (ngrokCode || (url.pathname.startsWith("/api/") && isHtml && upstream.status >= 400)) {
+    const msg = {
+      ERR_NGROK_3200: "The tunnel (ngrok) isn't running, so Netlify can't reach the bot. On the bot's PC, start ngrok again (start.bat does it for you when NGROK_URL is set in .env) — see docs/NETLIFY.md.",
+      ERR_NGROK_8012: "The tunnel is running but the bot's dashboard isn't answering on the PC. Check that the bot is running, DASHBOARD_ENABLED is true and the port matches ngrok (default 8080). The bot's console/log says why if the dashboard failed to start.",
+    }[ngrokCode] || `The tunnel answered with an error (${ngrokCode || "HTTP " + upstream.status}) instead of the bot. Make sure the bot and its tunnel are running and PULSE_BOT_URL is your current tunnel address.`;
+    return new Response(JSON.stringify({ error: msg, tunnel_error: ngrokCode || upstream.status }), { status: 502, headers: JSON_HEADERS });
+  }
   const out = new Headers(upstream.headers);
   out.delete("content-encoding"); // the body is already decoded by fetch
   out.delete("content-length");

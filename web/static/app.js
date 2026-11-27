@@ -513,7 +513,7 @@ async function boot() {
     try {
       const r = await fetch("/api/me", { credentials: "same-origin" });
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data.error || "Can't reach the bot. Is it running?");
+      if (!r.ok) throw new Error(data.error || `The bot didn't answer properly (HTTP ${r.status}). Make sure the bot and its tunnel are running.`);
       S.me = data;
     } catch (e) { return clear(app, gate(errorBox(e), h("button", { class: "btn", onclick: () => boot() }, icon("refresh"), "Try again"))); }
   }
