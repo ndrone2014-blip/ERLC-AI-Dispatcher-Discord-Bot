@@ -454,3 +454,20 @@ async def test_instant_verification_through_bloxlink_and_rover(db, core):
     test = await p.verification.test_external(GUILD, "rover", 10)
     assert "BuilderBob" in test["message"]
     await settle()
+
+
+@pytest.mark.asyncio
+async def test_verification_keys_from_env_file(db, core):
+    roblox = FakeRoblox()
+
+    async def rover(g, d, key):
+        assert key == "env-rover-key"
+        return 42
+
+    roblox.rover_lookup = rover
+    p = CommunityPlatform(db, core.bus, AuditLog(db), PermissionManager(db), actions=RecordingActions(), roblox=roblox,
+                          dispatch=core, secrets=FakeSecrets(), env_keys={"rover": "env-rover-key", "bloxlink": ""})
+    assert await p.verification.external_status(GUILD) == {"bloxlink": False, "rover": True}
+    res = await p.verification.try_external(GUILD, 10)
+    assert res["method"] == "rover"
+    await settle()

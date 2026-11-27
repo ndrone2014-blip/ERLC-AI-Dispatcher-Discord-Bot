@@ -156,7 +156,8 @@ class DispatchBot(commands.Bot):
         # v4.0 Command Center: community platform shared by slash commands and the web dashboard.
         self.roblox = RobloxAPI(self.session, client_id=s.roblox_client_id, client_secret=s.roblox_client_secret)
         self.community = CommunityPlatform(self.db, self.bus, self.audit, self.permissions, actions=BotActions(self),
-                                           roblox=self.roblox, ai=self.ai, dispatch=self.core, secrets=self.secrets)
+                                           roblox=self.roblox, ai=self.ai, dispatch=self.core, secrets=self.secrets,
+                                           env_keys={"rover": self.settings.rover_api_key, "bloxlink": self.settings.bloxlink_api_key})
         self.community.set_log_writer(self.logbook.write)
         self._wire_notifications()
         self.sync = SyncManager(self.db, self.bus, self.secrets, self.session, lambda: self.core.intake,

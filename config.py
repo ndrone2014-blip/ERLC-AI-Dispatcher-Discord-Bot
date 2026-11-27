@@ -114,6 +114,9 @@ class Settings:
     # Roblox OAuth 2.0 (optional, create.roblox.com -> OAuth 2.0 apps). Profile-code verification needs nothing.
     roblox_client_id: str = field(default_factory=lambda: _str("ROBLOX_CLIENT_ID"))
     roblox_client_secret: str = field(default_factory=lambda: _str("ROBLOX_CLIENT_SECRET"))
+    # Instant verification keys (used for every server unless a server saved its own on the dashboard)
+    rover_api_key: str = field(default_factory=lambda: _str("ROVER_API_KEY"))
+    bloxlink_api_key: str = field(default_factory=lambda: _str("BLOXLINK_API_KEY"))
 
     # Storage
     data_dir: Path = field(default_factory=lambda: _path("DATA_DIR", BASE_DIR / "data"))

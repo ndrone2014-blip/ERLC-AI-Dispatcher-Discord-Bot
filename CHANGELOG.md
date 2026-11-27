@@ -6,6 +6,7 @@
   **Test** button.
 - No Roblox OAuth app? **Verify** sends members to Bloxlink/RoVer (official Roblox sign-in) and an **I'm done** button checks them.
 - Otherwise members get a big **Sign in with Roblox** button. The profile code is only a backup and can be turned off.
+- Keys can go straight in `.env` (`ROVER_API_KEY`, `BLOXLINK_API_KEY`); no dashboard step needed.
 - Guide: **docs/ROBLOX_VERIFICATION.md**.
 
 ## 🌐 Dashboard on Netlify (2026-11-27)

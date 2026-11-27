@@ -61,7 +61,12 @@ they're verified the moment they press **Verify** or join the server. You need o
 **Verify on Bloxlink / RoVer** button instead. Members sign in there with the official Roblox login, come back, press
 **I'm done**, and Pulse picks the link up with your key.
 
-Paste the key on the Pulse dashboard: **Verification → Settings → Instant verification**, press **Save**, then
+Put the key in `.env` and restart the bot. That's it; it works for every server the bot is in:
+```
+ROVER_API_KEY=your-rover-key
+BLOXLINK_API_KEY=your-bloxlink-key
+```
+Or, per server, paste it on the Pulse dashboard instead: **Verification → Settings → Instant verification**, press **Save**, then
 **Test**. Test looks *you* up, so it says whether the key works. Keys are stored encrypted and never shown again.
 
 Toggles on the same page: use Bloxlink, use RoVer, verify automatically when someone joins.

@@ -377,14 +377,16 @@ class VerificationService:
 
     # ------------------------------------------------------------------ method 3: existing Bloxlink / RoVer links
     async def external_key(self, guild_id: int, provider: str) -> Optional[str]:
-        if provider not in EXTERNAL or self.p.secrets is None:
+        if provider not in EXTERNAL:
             return None
-        return await self.p.secrets.get(guild_id, f"verify_key:{provider}")
+        saved = await self.p.secrets.get(guild_id, f"verify_key:{provider}") if self.p.secrets is not None else None
+        return saved or getattr(self.p, "env_keys", {}).get(provider)
 
     async def external_status(self, guild_id: int) -> dict:
         out = {}
         for prov in EXTERNAL:
-            out[prov] = bool(self.p.secrets is not None and await self.p.secrets.exists(guild_id, f"verify_key:{prov}"))
+            out[prov] = bool(getattr(self.p, "env_keys", {}).get(prov)) or bool(
+                self.p.secrets is not None and await self.p.secrets.exists(guild_id, f"verify_key:{prov}"))
         return out
 
     async def set_external_key(self, guild_id: int, provider: str, key: Optional[str], actor_id: int) -> None:
