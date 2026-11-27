@@ -90,7 +90,7 @@ class ProfileCodeButton(discord.ui.Button):
         await interaction.response.send_modal(UsernameModal())
 
 
-async def start_verify(interaction: discord.Interaction, username: Optional[str]) -> None:
+async def start_verify(interaction: discord.Interaction, username: Optional[str], recheck: bool = False) -> None:
     bot = bot_of(interaction)
     if interaction.guild is None:
         return await reply(interaction, "Verification works inside a server.", error=True)
@@ -124,9 +124,14 @@ async def start_verify(interaction: discord.Interaction, username: Optional[str]
             return await reply(interaction, embed=e)
         # 2) Sign in with Roblox (official login page), with the profile code as an optional fallback.
         oauth_ready = s["allow_oauth"] and v.oauth_available() and bool(bot.settings.dashboard_public_url)
+        keys = await v.external_status(interaction.guild.id)
+        sites = [(name, url) for prov, name, url in EXTERNAL_SITES if keys.get(prov) and s.get(f"use_{prov}", True)]
         view = discord.ui.View(timeout=600)
         e = E.base("✅ Verify your Roblox account", look=look, colour=E.OK)
         intro = f"You're currently linked to **{link['roblox_username']}**. Verifying again replaces that link.\n\n" if link else ""
+        if recheck:
+            intro = ("⚠️ We couldn't find your account yet. Make sure you finished on the site, using the **same Discord "
+                     "account** you're on now, then press **I'm done** again.\n\n") + intro
         if oauth_ready:
             req = await v.start_oauth(interaction.guild.id, interaction.user.id)
             view.add_item(discord.ui.Button(label="Sign in with Roblox", emoji="🔐",
@@ -134,19 +139,49 @@ async def start_verify(interaction: discord.Interaction, username: Optional[str]
             e.description = (intro + "**1.** Press **Sign in with Roblox**.\n**2.** Log in on roblox.com and press **Confirm**.\n"
                              "**3.** Done — come back to Discord.\n\n"
                              f"Roblox never shares your password with us. This link works once, for {req['expires_in_minutes']} minutes.")
-            if s["allow_profile_code"]:
-                btn = ProfileCodeButton()
-                btn.label, btn.style = "Can't sign in? Use a code instead", discord.ButtonStyle.secondary
-                view.add_item(btn)
-        elif s["allow_profile_code"]:
-            view.add_item(ProfileCodeButton())
-            e.description = intro + "Press **Use a profile code** and enter your Roblox username. You'll get a short code to put in your " \
-                                    "Roblox profile's About section for a moment."
-        else:
+        elif sites:
+            # No Roblox app of our own: send members to Bloxlink/RoVer, which use the official Roblox sign-in,
+            # then read the result back with the server's API key.
+            for name, url in sites:
+                view.add_item(discord.ui.Button(label=f"Verify on {name}", emoji="🔐", url=url))
+            view.add_item(VerifyRecheckItem())
+            names = " or ".join(n for n, _ in sites)
+            e.description = (intro + f"**1.** Press **Verify on {names}** and sign in with Discord.\n"
+                             "**2.** Choose **Sign in with Roblox** there and log in on roblox.com.\n"
+                             "**3.** Come back and press **I'm done**.\n\n"
+                             "Never type your Roblox password anywhere except roblox.com.")
+        elif not s["allow_profile_code"]:
             return await reply(interaction, "No verification method is set up on this server yet. Ask an administrator.", error=True)
+        if s["allow_profile_code"]:
+            btn = ProfileCodeButton()
+            if oauth_ready or sites:
+                btn.label, btn.style = "Can't sign in? Use a code instead", discord.ButtonStyle.secondary
+            else:
+                e.description = intro + "Press **Use a profile code** and enter your Roblox username. You'll get a short code to put in your " \
+                                        "Roblox profile's About section for a moment."
+            view.add_item(btn)
         await reply(interaction, embed=e, view=view)
 
     await guarded(interaction, go)
+
+
+EXTERNAL_SITES = (("bloxlink", "Bloxlink", "https://blox.link/verify"),
+                  ("rover", "RoVer", "https://rover.link/verify"))
+
+
+class VerifyRecheckItem(discord.ui.DynamicItem[discord.ui.Button], template=r"pd:verify:recheck"):
+    """After verifying on Bloxlink/RoVer: look the member up again."""
+
+    def __init__(self):
+        super().__init__(discord.ui.Button(label="I'm done", emoji="✔️", style=discord.ButtonStyle.success,
+                                           custom_id="pd:verify:recheck"))
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match: re.Match[str]):
+        return cls()
+
+    async def callback(self, interaction: discord.Interaction):
+        await start_verify(interaction, None, recheck=True)
 
 
 class VerifyStartItem(discord.ui.DynamicItem[discord.ui.Button], template=r"pd:verify:start"):
@@ -286,4 +321,4 @@ def review_view(number: int) -> discord.ui.View:
     return v
 
 
-DYNAMIC_ITEMS = (VerifyStartItem, VerifyCheckItem, SessionItem, AppReviewItem)
+DYNAMIC_ITEMS = (VerifyStartItem, VerifyCheckItem, VerifyRecheckItem, SessionItem, AppReviewItem)

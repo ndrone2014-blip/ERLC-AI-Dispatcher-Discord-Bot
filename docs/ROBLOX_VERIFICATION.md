@@ -57,6 +57,10 @@ they're verified the moment they press **Verify** or join the server. You need o
 * **RoVer:** [rover.link](https://rover.link) dashboard → your server → **API keys** → create a key. RoVer must be in
   your server.
 
+**No Roblox OAuth app?** (Roblox requires ID verification to create one.) Then **Verify** shows a
+**Verify on Bloxlink / RoVer** button instead. Members sign in there with the official Roblox login, come back, press
+**I'm done**, and Pulse picks the link up with your key.
+
 Paste the key on the Pulse dashboard: **Verification → Settings → Instant verification**, press **Save**, then
 **Test**. Test looks *you* up, so it says whether the key works. Keys are stored encrypted and never shown again.
 

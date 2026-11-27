@@ -4,6 +4,7 @@
 - **Verify** now works like Bloxlink/Melonly: members already verified with **Bloxlink** or **RoVer** are verified in
   one click (and automatically when they join). Add the server API keys on **Verification → Settings**, with a
   **Test** button.
+- No Roblox OAuth app? **Verify** sends members to Bloxlink/RoVer (official Roblox sign-in) and an **I'm done** button checks them.
 - Otherwise members get a big **Sign in with Roblox** button. The profile code is only a backup and can be turned off.
 - Guide: **docs/ROBLOX_VERIFICATION.md**.
 
