@@ -87,7 +87,7 @@ class DashboardServer:
         return self.s.discord_client_id or str(self.bot.application_id or "")
 
     async def start(self) -> None:
-        app = web.Application(client_max_size=1024 * 1024, middlewares=[self._errors, self._headers])
+        app = web.Application(client_max_size=1024 * 1024, middlewares=[self._errors, self._headers, self._proxy_guard])
         r = app.router
         r.add_get("/", self._index)
         r.add_get("/healthz", self._health)
@@ -148,7 +148,25 @@ class DashboardServer:
             log.exception("Dashboard error on %s %s", request.method, request.path)
             return _json({"error": "Something went wrong on the server. The error was logged."}, 500)
 
+    def via_proxy(self, request: web.Request) -> bool:
+        """True when the request came through the Netlify edge function (it sends the shared secret)."""
+        secret = self.s.dashboard_proxy_secret
+        got = request.headers.get("X-Pulse-Proxy-Secret", "")
+        return bool(secret) and bool(got) and secrets.compare_digest(got, secret)
+
+    @web.middleware
+    async def _proxy_guard(self, request: web.Request, handler):
+        # With Netlify hosting, everything must arrive through the Netlify site. Requests that hit the tunnel
+        # address directly are refused, so the bot is never exposed without the dashboard's protections.
+        if self.s.dashboard_proxy_secret and request.path != "/healthz" and not self.via_proxy(request):
+            if request.path.startswith("/api/"):
+                return _json({"error": "Open the dashboard through its Netlify address."}, 403)
+            return self._page("Use the dashboard address", f"Open the dashboard at {self.base_url} instead.", ok=False, status=403)
+        return await handler(request)
+
     def ip(self, request: web.Request) -> str:
+        if self.via_proxy(request) and request.headers.get("X-Pulse-Client-IP"):
+            return request.headers["X-Pulse-Client-IP"].strip()[:64]
         if self.s.dashboard_trust_proxy:
             for h in ("CF-Connecting-IP", "X-Real-IP"):
                 if request.headers.get(h):

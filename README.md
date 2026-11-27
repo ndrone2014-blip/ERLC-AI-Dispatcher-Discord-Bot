@@ -107,7 +107,7 @@ Deleted a panel by accident? `/setup repair`.
 
 **Dashboard (5 minutes):** Developer Portal → OAuth2 → *Reset Secret* → put it in `.env` as `DISCORD_CLIENT_SECRET`, add the
 redirect `http://localhost:8080/auth/callback`, restart, open **http://localhost:8080**. To let staff use it from anywhere,
-follow [docs/DASHBOARD.md](docs/DASHBOARD.md) (free Cloudflare Tunnel or ngrok).
+host it on **Netlify** with [docs/NETLIFY.md](docs/NETLIFY.md), or use a tunnel directly ([docs/DASHBOARD.md](docs/DASHBOARD.md)).
 
 **Roblox verification (no setup):** `/verification roles` → `/verification panel channel:#verify`. Members press **Verify**.
 Optional official "Sign in with Roblox": [docs/ROBLOX_VERIFICATION.md](docs/ROBLOX_VERIFICATION.md).

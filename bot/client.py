@@ -97,7 +97,7 @@ class DispatchBot(commands.Bot):
         self._card_pending: set[int] = set()
         for secret in (settings.discord_token, settings.gemini_api_key, settings.erlc_server_key, settings.erlc_global_key,
                        settings.openai_compat_api_key, settings.secret_key, settings.discord_client_secret,
-                       settings.roblox_client_secret,
+                       settings.roblox_client_secret, settings.dashboard_proxy_secret,
                        *[v.get("api_key", "") for v in settings.provider_keys.values()]):
             register_secret(secret)
 

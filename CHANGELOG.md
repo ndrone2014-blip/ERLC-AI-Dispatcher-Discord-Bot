@@ -1,5 +1,12 @@
 # Changelog
 
+## 🌐 Dashboard on Netlify (2026-11-27)
+- The web dashboard can now be hosted on **Netlify** (`netlify.toml` + an edge function that forwards sign-in and data
+  requests to the bot through a tunnel). One address for staff, same sign-in, permissions and live updates.
+- New `DASHBOARD_PROXY_SECRET`: when set, the bot only answers dashboard requests that came through your Netlify site.
+- Live updates fall back to refreshing every 20 seconds if a host cuts the connection.
+- Guide: **docs/NETLIFY.md**.
+
 ## 🖥️ Pulse Dispatch | ERLC — Command Center Update · v4.0.0 (2026-11-27)
 
 The biggest update yet: Pulse Dispatch grows from a dispatch bot into a full ER:LC community platform with a web

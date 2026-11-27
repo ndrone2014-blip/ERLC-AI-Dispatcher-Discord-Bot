@@ -53,6 +53,9 @@ You can change what any group may do on the same page: tick the boxes for a perm
 
 ## 3. Let staff open it from anywhere
 
+> **Hosting on Netlify?** Follow **[NETLIFY.md](NETLIFY.md)** instead of this section. Netlify serves the pages at your
+> `*.netlify.app` address and forwards requests to the bot.
+
 By default the dashboard only listens on the bot's own PC (`127.0.0.1`). To share it, put it behind a **tunnel**:
 a free service that gives your PC a public HTTPS address without opening ports on your router.
 

@@ -33,7 +33,7 @@ const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? 
                 set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage off: fine */ } } };
 
 // ============================================================================ state & API
-const S = { me: null, gid: null, meta: null, perms: new Set(), refresh: null, es: null, path: "", critical: 0 };
+const S = { me: null, gid: null, meta: null, perms: new Set(), refresh: null, es: null, poll: null, path: "", critical: 0 };
 const can = (p) => S.perms.has(p);
 
 async function api(path, { method = "GET", body } = {}) {
@@ -279,8 +279,14 @@ function link(path, text) { return h("a", { href: `#/g/${S.gid}/${path}` }, text
 async function boot() {
   const app = $("#app");
   if (!S.me) {
-    try { S.me = await fetch("/api/me", { credentials: "same-origin" }).then((r) => r.json()); }
-    catch { return clear(app, h("main", { class: "gate" }, h("div", { class: "gate-box" }, errorBox(new Error("Can't reach the bot. Is it running?"))))); }
+    try {
+      const r = await fetch("/api/me", { credentials: "same-origin" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || "Can't reach the bot. Is it running?");
+      S.me = data;
+    } catch (e) { return clear(app, h("main", { class: "gate" }, h("div", { class: "gate-box" },
+      h("img", { class: "login-banner", src: "/static/brand/banner.png", alt: "Pulse Dispatch | ER:LC" }), errorBox(e),
+      h("p", null, h("button", { class: "btn", onclick: () => boot() }, "Try again"))))); }
   }
   if (!S.me.signed_in) return renderLogin(app);
   route();
@@ -291,7 +297,7 @@ function renderLogin(app) {
     h("h1", null, "Sign in to your command center"),
     h("p", null, "Use your Discord account. You'll see the servers and sections your roles allow."),
     S.me.login_ready ? h("a", { class: "btn primary", href: "/auth/login" }, "Sign in with Discord")
-      : h("div", { class: "callout", style: "text-align:left" }, "Sign-in isn't set up yet. The bot owner needs to add DISCORD_CLIENT_SECRET to the .env file and restart the bot (see docs/DASHBOARD.md)."))));
+      : h("div", { class: "callout", style: "text-align:left" }, "Sign-in isn't set up yet. The bot owner needs to add DISCORD_CLIENT_SECRET to the .env file and restart the bot (see docs/DASHBOARD.md or docs/NETLIFY.md)."))));
 }
 function renderPicker(app) {
   disconnect();
@@ -407,15 +413,24 @@ function connect() {
   const refresh = debounce(() => { if (S.refresh) S.refresh(); }, 900);
   const lights = debounce(updateLightbar, 1200);
   S.es = new EventSource(`/api/g/${S.gid}/events`);
+  let failures = 0;
+  S.es.onopen = () => { failures = 0; };
   S.es.onmessage = (e) => {
+    failures = 0;
     const name = e.data || "";
     if (name.startsWith("notification")) refreshBell();
     if (name.startsWith("incident") || name.startsWith("assignment")) lights();
     refresh();
   };
+  // If live updates can't stay connected (some hosts/proxies cut long requests), refresh every 20 s instead.
+  S.es.onerror = () => {
+    if (++failures < 4 || S.poll) return;
+    S.es.close(); S.es = null;
+    S.poll = setInterval(() => { if (document.hidden) return; refreshBell(); updateLightbar(); if (S.refresh) S.refresh(); }, 20000);
+  };
   updateLightbar();
 }
-function disconnect() { if (S.es) { S.es.close(); S.es = null; } }
+function disconnect() { if (S.es) { S.es.close(); S.es = null; } if (S.poll) { clearInterval(S.poll); S.poll = null; } }
 async function updateLightbar() {
   if (!can("incident.view")) return;
   try {
