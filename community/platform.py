@@ -63,6 +63,23 @@ class CommunityPlatform:
         self.analytics = AnalyticsService(self)
         from .assistant import Assistant
         self.assistant = Assistant(self)
+        # v5.0 Platform Overhaul
+        from .erlc_moderation import ErlcModerationService
+        self.erlc_moderation = ErlcModerationService(self)
+        bus.subscribe("bolo.changed", self._on_bolo)
+
+    async def _on_bolo(self, e) -> None:
+        """Tell authorized staff about new or reopened BOLOs (dashboard bell + optional Discord channel)."""
+        if e.data.get("action") not in {"created", "reopened"} or self.dispatch is None:
+            return
+        b = await self.dispatch.bolos.get(e.data.get("bolo_id"))
+        if not b:
+            return
+        sev = {"critical": "critical", "high": "warning"}.get(b.get("priority") or "", "info")
+        who = f" ({b['roblox_username']})" if b.get("roblox_username") and b["roblox_username"].lower() != b["subject"].lower() else ""
+        await self.notifications.create(b["guild_id"], "dispatch", f"BOLO #{b['number']} {e.data['action']}: {b['subject']}{who}",
+                                        body=(b.get("reason") or b.get("description") or "")[:200], severity=sev,
+                                        link=f"#/bolos/{b['number']}", permission="bolo.view")
 
     # ------------------------------------------------------------------ logging
     def set_log_writer(self, writer: LogWriter) -> None:
@@ -73,6 +90,10 @@ class CommunityPlatform:
                   fields: Optional[list[tuple[str, str, bool]]] = None, colour: Optional[int] = None,
                   actor_id: Optional[int] = None, incident_id: Optional[int] = None) -> None:
         try:
+            if self._log_writer is None:  # the bot's Logbook records activity itself
+                from core import activity
+                await activity.record(self.db, guild_id, category, title, body=activity.summarise(description, fields),
+                                      actor_id=actor_id)
             if self._log_writer is not None:
                 await self._log_writer(guild_id, category, title, description=description, fields=fields, colour=colour,
                                        actor_id=actor_id, incident_id=incident_id)

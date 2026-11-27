@@ -220,7 +220,7 @@ class DashboardServer:
 
     # ------------------------------------------------------------------ pages
     async def _index(self, request: web.Request) -> web.Response:
-        html = (STATIC / "index.html").read_text(encoding="utf-8").replace("{{v}}", VERSION)
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
         return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-cache"})
 
     async def _health(self, request: web.Request) -> web.Response:
@@ -403,6 +403,10 @@ class DashboardServer:
     async def _on_event(self, e) -> None:
         qs = self._streams.get(e.guild_id)
         if not qs:
+            return
+        # v5.0: the ER:LC loop reports "still connected" after every poll (every few seconds). That heartbeat used to
+        # make every open page reload. Only real changes are forwarded now (status changes, player joins/leaves).
+        if e.name == "erlc.status" and e.data.get("poll"):
             return
         # Only the event *name* is sent; the page then re-fetches what it shows through the normal,
         # permission-checked API, so nothing private leaks through the stream.

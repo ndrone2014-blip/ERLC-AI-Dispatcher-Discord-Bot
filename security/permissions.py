@@ -50,7 +50,7 @@ DEFAULT_PERMISSIONS: dict[str, set[str]] = {
     "incident.note": RESPONDERS,
     "incident.backup": RESPONDERS,
     "incident.manual_create": RESPONDERS,
-    "bolo.view": RESPONDERS,
+    "bolo.view": RESPONDERS | TEAM,
     "voice.command": RESPONDERS,
     # dispatchers
     "incident.attach_other": STAFF,
@@ -107,6 +107,11 @@ DEFAULT_PERMISSIONS: dict[str, set[str]] = {
     "notifications.view": TEAM,
     "assistant.use": EVERYONE,
     "dispatch.dashboard": STAFF,
+    # v5.0 Platform Overhaul: in-game (ER:LC) management
+    "erlc.view": TEAM,
+    "erlc.moderate": MODERATORS | {"supervisor"},
+    "erlc.ban": MANAGEMENT | {"moderator"},
+    "erlc.command": ADMINS,
 }
 
 PERMISSION_DESCRIPTIONS = {
@@ -152,6 +157,11 @@ PERMISSION_DESCRIPTIONS = {
     "announcement.send": "Send announcements",
     "notifications.view": "See dashboard notifications",
     "dispatch.dashboard": "Use the web Dispatch Center",
+    "bolo.view": "See BOLOs and BOLO alerts",
+    "erlc.view": "See the live ER:LC server, players and in-game records",
+    "erlc.moderate": "Warn, kick and add notes to in-game players",
+    "erlc.ban": "Ban and unban in-game players",
+    "erlc.command": "Run in-game commands from the dashboard",
 }
 
 

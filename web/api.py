@@ -78,24 +78,28 @@ def _opt_int(v: Any) -> Optional[int]:
     return as_int(v, required=False) if v not in (None, "", "0", 0) else None
 
 
-# Dashboard sections -> the permission that unlocks them (the frontend hides what you can't open,
-# but every API route checks again on its own).
+# Dashboard sections -> the permission(s) that unlock them (a tuple means "any of these"). The frontend hides what
+# you can't open, but every API route checks again on its own.
 NAV = [
-    ("Overview", [("dashboard", "Dashboard", "dashboard.view"), ("analytics", "Analytics", "analytics.view"),
-                  ("activity", "Activity feed", "dashboard.view")]),
+    ("Overview", [("dashboard", "Dashboard", "dashboard.view"), ("activity", "Activity feed", "dashboard.view"),
+                  ("analytics", "Analytics", "analytics.view")]),
+    ("ER:LC", [("erlc", "Live server", "erlc.view"), ("erlc/players", "Players", "erlc.view")]),
+    ("Moderation", [("moderation", "Moderation center", ("mod.view", "erlc.view")), ("moderation/records", "In-game records", "erlc.view"),
+                    ("moderation/discord", "Discord cases", "mod.view"), ("moderation/active", "Active punishments", ("mod.view", "erlc.view")),
+                    ("moderation/reports", "Member reports", "mod.reports_manage"), ("moderation/staff", "Staff records", ("mod.view", "erlc.view")),
+                    ("moderation/settings", "Moderation settings", "admin.config")]),
+    ("BOLOs", [("bolos", "BOLO board", "bolo.view")]),
+    ("Staff", [("staff/overview", "Staff overview", "staff.view"), ("shifts", "Shifts", "shift.self"), ("staff/leave", "Leave (LOA)", "shift.self"),
+               ("staff", "Staff directory", "staff.view"), ("staff/settings", "Staff settings", "staff.manage")]),
     ("Dispatch", [("dispatch", "Dispatch center", "incident.view"), ("incidents", "Incident history", "incident.view"),
                   ("units", "Units", "incident.view"), ("dispatch/settings", "Dispatch settings", "admin.config")]),
     ("Community", [("members", "Members", "members.view"), ("verification", "Verification", "verification.manage"),
-                   ("applications", "Applications", "application.review"), ("sessions", "Sessions", "session.view")]),
-    ("Staff", [("staff", "Staff directory", "staff.view"), ("shifts", "Shifts", "shift.self"),
-               ("staff/leave", "Leave requests", "staff.leave_review"), ("staff/settings", "Staff settings", "staff.manage")]),
-    ("Moderation", [("moderation", "Cases", "mod.view"), ("moderation/reports", "Member reports", "mod.reports_manage"),
-                    ("moderation/settings", "Moderation settings", "admin.config")]),
+                   ("applications", "Applications", "application.review"), ("sessions", "Sessions", "session.view"),
+                   ("announcements", "Announcements", "announcement.send")]),
     ("Automation", [("automation", "Automations", "automation.manage"), ("automation/schedules", "Scheduled messages", "automation.manage")]),
     ("Logging", [("logs", "Log viewer", "logs.view"), ("logs/audit", "Audit log", "logs.view"), ("logs/settings", "Log routing", "admin.config")]),
     ("Bot", [("embeds", "Embed builder", "embeds.manage"), ("welcome", "Welcome messages", "embeds.manage"),
-             ("announcements", "Announcements", "announcement.send"), ("commands", "Slash commands", "dashboard.view"),
-             ("bot/appearance", "Appearance", "admin.config")]),
+             ("commands", "Slash commands", "dashboard.view"), ("bot/appearance", "Appearance", "admin.config")]),
     ("AI system", [("ai", "Providers", "admin.ai"), ("ai/personality", "Dispatcher personality", "admin.config"),
                    ("ai/usage", "AI usage", "admin.ai")]),
     ("Settings", [("settings", "General", "admin.config"), ("settings/permissions", "Permissions", "admin.permissions"),
@@ -104,7 +108,15 @@ NAV = [
 ]
 
 
-class Api:
+def nav_allowed(perm, perms: set[str]) -> bool:
+    return any(p in perms for p in perm) if isinstance(perm, tuple) else perm in perms
+
+
+# v5.0 routes are registered first so their specific paths win over older patterns like /moderation/{n}.
+from .api_v5 import PlatformApi  # noqa: E402
+
+
+class Api(PlatformApi):
     def __init__(self, bot):
         self.bot = bot
         self._compiled = [(m, _compile(p), getattr(self, h), perm) for m, p, h, perm in ROUTES]
@@ -181,7 +193,7 @@ class Api:
     @route("GET", "/meta", "dashboard.view")
     async def meta(self, ctx: Ctx):
         g = self._guild(ctx.guild_id)
-        nav = [{"group": grp, "items": [{"path": p, "label": lbl} for p, lbl, perm in items if perm in ctx.perms]} for grp, items in NAV]
+        nav = [{"group": grp, "items": [{"path": p, "label": lbl} for p, lbl, perm in items if nav_allowed(perm, ctx.perms)]} for grp, items in NAV]
         return {"guild": {"id": str(ctx.guild_id), "name": g.name if g else str(ctx.guild_id),
                           "icon": g.icon.url if g is not None and g.icon else None},
                 "nav": [n for n in nav if n["items"]], "permissions": sorted(ctx.perms),
@@ -195,7 +207,7 @@ class Api:
 
     @route("PUT", "/prefs", "dashboard.view")
     async def prefs_save(self, ctx: Ctx):
-        allowed = {"widgets", "recent", "range"}
+        allowed = {"widgets", "hidden", "recent", "range", "onboarded"}
         prefs = {k: v for k, v in ctx.body.items() if k in allowed}
         raw = dumps(prefs)
         if len(raw) > 4000:
@@ -261,22 +273,34 @@ class Api:
             },
             "notifications": await c.notifications.list_for(gid, ctx.user_id, ctx.perms, limit=5, unread_only=True),
         }
+        # v5.0 additions
+        out["unread"] = await c.notifications.unread_count(gid, ctx.user_id, ctx.perms)
+        out["bolos"] = {"active": await self.bot.db.fetchval("SELECT COUNT(*) FROM bolos WHERE guild_id = ? AND status = 'active'", (gid,), 0),
+                        "urgent": await self.bot.db.fetchval("SELECT COUNT(*) FROM bolos WHERE guild_id = ? AND status = 'active' AND "
+                                                             "priority IN ('high', 'critical')", (gid,), 0)} if "bolo.view" in ctx.perms else None
+        out["health"] = await self.platform_health(ctx)
+        out["trend"] = await self.activity_trend(gid)
+        out["recent"]["in_game"] = [self.c.erlc_moderation._rec(r) for r in await self.bot.db.fetchall(
+            "SELECT * FROM erlc_mod_records WHERE guild_id = ? ORDER BY id DESC LIMIT 6", (gid,))] if "erlc.view" in ctx.perms else None
+        from core.activity import visible_categories
+        cats = visible_categories(ctx.perms) or ["-"]
+        out["recent"]["feed"] = await self.humanize(gid, row_dicts(await self.bot.db.fetchall(
+            f"SELECT id, at, category, title, body, link FROM activity_events WHERE guild_id = ? AND category IN ({','.join('?' * len(cats))}) "
+            "ORDER BY id DESC LIMIT 12", (gid, *cats))))
+        await self.humanize(gid, out["notifications"])
+        out["staff"]["on_leave"] = await self.bot.db.fetchval(
+            "SELECT COUNT(*) FROM leave_requests WHERE guild_id = ? AND status = 'approved' AND starts_on <= ? AND ends_on >= ?",
+            (gid, today, today), 0)
+        out["staff"]["pending_leave"] = await self.bot.db.fetchval("SELECT COUNT(*) FROM leave_requests WHERE guild_id = ? AND status = 'pending'",
+                                                                   (gid,), 0)
+        out["me"] = {"shift": await c.shifts.current(gid, ctx.user_id)} if "shift.self" in ctx.perms else None
+        if out["me"] and out["me"]["shift"]:
+            out["me"]["shift"]["user_id"] = str(out["me"]["shift"]["user_id"])
         return out
 
     @route("GET", "/analytics", "analytics.view")
     async def analytics(self, ctx: Ctx):
         return await self.c.analytics.summary(ctx.guild_id, ctx.q("range", "7d"), ctx.q("start") or None, ctx.q("end") or None)
-
-    @route("GET", "/activity", "dashboard.view")
-    async def activity(self, ctx: Ctx):
-        cats = ("calls", "incidents", "closures", "assignments", "sessions", "members", "applications", "staff", "shifts", "verification")
-        marks = ",".join("?" * len(cats))
-        rows = row_dicts(await self.bot.db.fetchall(
-            f"SELECT id, at, category, title, actor_id FROM dispatch_log WHERE guild_id = ? AND category IN ({marks}) ORDER BY id DESC LIMIT 60",
-            (ctx.guild_id, *cats)))
-        for r in rows:
-            r["actor_id"] = _sid(r["actor_id"])
-        return {"items": rows}
 
     # ================================================================== dispatch
     async def _incident_out(self, inc: dict, with_units: bool = True) -> dict:
@@ -1368,6 +1392,7 @@ class Api:
     @route("GET", "/notifications", "dashboard.view")
     async def notifications(self, ctx: Ctx):
         items = await self.c.notifications.list_for(ctx.guild_id, ctx.user_id, ctx.perms, limit=40, unread_only=ctx.q("unread") == "1")
+        await self.humanize(ctx.guild_id, items)
         return {"items": items, "unread": sum(1 for i in items if not i["read"])}
 
     @route("POST", "/notifications/read", "dashboard.view")

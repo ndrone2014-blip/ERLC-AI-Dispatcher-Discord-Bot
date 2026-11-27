@@ -103,19 +103,30 @@ ngrok http --url=your-name.ngrok-free.app 8080
 
 | Area | Sections |
 |---|---|
-| Overview | Customizable dashboard (choose and reorder panels), analytics with date ranges, live activity feed |
-| Dispatch | Dispatch center (live incidents, assign/clear units, notes, priorities, statuses), incident history, units, dispatch settings (departments, unit statuses, incident statuses) |
-| Community | Member directory and profiles, Roblox verification, applications (review + form builder), sessions |
-| Staff | Staff directory and profiles, shifts, leave requests, rank ladder and shift settings |
-| Moderation | Cases (warn / timeout / kick / ban / unban), member reports, moderation settings |
-| Automation | Event automations with templates, scheduled messages |
-| Logging | Searchable log viewer with CSV export, audit log, per-category log routing |
-| Bot | Embed builder with live preview, welcome/leave messages, announcements, slash command list, embed appearance |
-| AI system | Providers (keys are write-only), dispatcher personality, AI usage |
-| Settings | Channels and ER:LC key, permissions, notifications, integration status, your sessions |
+| Overview | Customizable dashboard (choose numbers and panels, reorder them), activity feed with filters/search, analytics |
+| ER:LC | Live server (players, in-game staff, joins & leaves, join/kill/command logs, mod calls, server staff, ban list, server console), player directory |
+| Moderation | Moderation center (stats, chart, top moderators, player lookup), in-game records, player profiles, Discord cases, active punishments, member reports, staff moderation records, settings |
+| BOLOs | BOLO board: priorities, linked players, notes, close/reopen, history |
+| Staff | Staff overview (availability, hours, performance), shifts (live timer), leave (LOA) requests and reviews, staff directory, settings |
+| Dispatch | Dispatch center, incident history, units, dispatch settings |
+| Community | Members, Roblox verification, applications, sessions, announcements |
+| Automation · Logging · Bot · AI · Settings | As before (automations, schedules, log viewer, audit log, embed builder, AI providers, permissions, …) |
 
-Top bar: server switcher, **Ask Pulse** (the AI dispatcher assistant), notifications bell, light/dark mode.
-The red/blue light bar at the very top pulses while a **critical** incident is open.
+Top bar: breadcrumbs, **search / command palette** (Ctrl K or ⌘K, or press `/`), live-update indicator, **Ask Pulse**
+and the **notification center**. The dashboard is dark mode only. The red/blue light bar at the very top pulses while a
+**critical** incident is open.
+
+**Live updates never reload the page.** Each page listens only for the events it shows and updates those parts in
+place, keeping your scroll position, tab, open dialogs and anything you're typing. If a host cuts the live connection
+(some proxies do), the dashboard quietly checks every 20 seconds instead — the indicator in the top bar shows which.
+
+### In-game moderation and the ER:LC API
+In-game actions are always **recorded**. Tick *Carry it out in-game* to also run the matching ER:LC command (`:pm` for
+warnings, `:kick`, `:ban`, `:unban`) through the official API; the result is stored on the record. ER:LC needs the
+player to be in the server for `:kick` and `:pm`. Temporary bans are lifted automatically when they end.
+The live sections (staff list, logs, mod calls, queue) come straight from ER:LC; if your server's API access doesn't
+include one, the page says so instead of showing made-up data. Admins can switch the extra sections off with
+`PUT /erlc/settings {"extras": false}` (they share the 911 poll, so they cost no extra requests).
 
 ---
 

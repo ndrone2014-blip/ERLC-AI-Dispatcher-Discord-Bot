@@ -269,6 +269,64 @@ class StaffService:
             r["user_id"] = str(r["user_id"])
         return rows
 
+    async def cancel_leave(self, guild_id: int, leave_id: int, user_id: int) -> dict:
+        r = await self.db.fetchone("SELECT * FROM leave_requests WHERE guild_id = ? AND id = ? AND user_id = ?", (guild_id, int(leave_id), int(user_id)))
+        if not r:
+            raise ServiceError("Leave request not found.")
+        if r["status"] not in {"pending", "approved"}:
+            raise ServiceError("Only pending or approved leave can be cancelled.")
+        await self.db.execute("UPDATE leave_requests SET status = 'cancelled' WHERE id = ?", (int(leave_id),))
+        await self.p.log(guild_id, "staff", "Leave Cancelled", fields=[("Member", f"<@{user_id}>", True),
+                                                                      ("Dates", f"{r['starts_on']} → {r['ends_on']}", True)], actor_id=int(user_id))
+        await self.tick(guild_id)
+        return dict(await self.db.fetchone("SELECT * FROM leave_requests WHERE id = ?", (int(leave_id),)))
+
+    async def overview(self, guild_id: int, *, inactive_days: int = 14) -> dict:
+        """Availability, hours and performance for every current staff member (v5.0)."""
+        now = utcnow()
+        d7 = (now - dt.timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        d30 = (now - dt.timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        today = now.date().isoformat()
+        rows = row_dicts(await self.db.fetchall(
+            "SELECT s.user_id, s.rank, s.department, s.status, s.appointed_at, m.username, m.display_name, m.avatar_url, "
+            "(SELECT COALESCE(SUM(duration_s), 0) FROM shifts sh WHERE sh.guild_id = s.guild_id AND sh.user_id = s.user_id AND sh.started_at >= ?) AS s7, "
+            "(SELECT COALESCE(SUM(duration_s), 0) FROM shifts sh WHERE sh.guild_id = s.guild_id AND sh.user_id = s.user_id AND sh.started_at >= ?) AS s30, "
+            "(SELECT COUNT(*) FROM shifts sh WHERE sh.guild_id = s.guild_id AND sh.user_id = s.user_id AND sh.started_at >= ?) AS shifts30, "
+            "(SELECT MAX(started_at) FROM shifts sh WHERE sh.guild_id = s.guild_id AND sh.user_id = s.user_id) AS last_shift, "
+            "(SELECT started_at FROM shifts sh WHERE sh.guild_id = s.guild_id AND sh.user_id = s.user_id AND sh.ended_at IS NULL) AS shift_started, "
+            "(SELECT shift_type FROM shifts sh WHERE sh.guild_id = s.guild_id AND sh.user_id = s.user_id AND sh.ended_at IS NULL) AS shift_type, "
+            "(SELECT COUNT(*) FROM mod_cases c WHERE c.guild_id = s.guild_id AND c.moderator_id = s.user_id AND c.created_at >= ?) AS discord_actions, "
+            "(SELECT COUNT(*) FROM erlc_mod_records r WHERE r.guild_id = s.guild_id AND r.moderator_id = s.user_id AND r.created_at >= ?) AS game_actions, "
+            "(SELECT COUNT(*) FROM leave_requests l WHERE l.guild_id = s.guild_id AND l.user_id = s.user_id AND l.status = 'approved' "
+            " AND l.starts_on <= ? AND l.ends_on >= ?) AS on_leave "
+            "FROM staff s LEFT JOIN members m ON m.guild_id = s.guild_id AND m.user_id = s.user_id "
+            "WHERE s.guild_id = ? AND s.status IN ('active', 'leave')", (d7, d30, d30, d30, d30, today, today, guild_id)))
+        ranks = [r["name"] for r in (await self.settings(guild_id))["ranks"]]
+        inactive_cut = (now - dt.timedelta(days=inactive_days)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        counts = {"on_shift": 0, "on_leave": 0, "available": 0, "inactive": 0}
+        for r in rows:
+            r["user_id"] = str(r["user_id"])
+            r["hours_7d"], r["hours_30d"] = round(r.pop("s7") / 3600, 1), round(r.pop("s30") / 3600, 1)
+            r["moderation_30d"] = r["discord_actions"] + r["game_actions"]
+            if r["shift_started"]:
+                r["availability"] = "on_shift"
+                r["elapsed_s"] = int((now - (parse_iso(r["shift_started"]) or now)).total_seconds())
+            elif r["on_leave"] or r["status"] == "leave":
+                r["availability"] = "on_leave"
+            elif not r["last_shift"] or r["last_shift"] < inactive_cut:
+                r["availability"] = "inactive"
+            else:
+                r["availability"] = "available"
+            counts[r["availability"]] += 1
+            r["rank_index"] = ranks.index(r["rank"]) if r["rank"] in ranks else 99
+        rows.sort(key=lambda r: (["on_shift", "available", "on_leave", "inactive"].index(r["availability"]), r["rank_index"],
+                                 (r["display_name"] or r["username"] or "").lower()))
+        totals = await self.db.fetchone("SELECT COUNT(*) AS n, COALESCE(SUM(duration_s), 0) AS secs FROM shifts WHERE guild_id = ? AND started_at >= ?",
+                                        (guild_id, d7))
+        pending_leave = await self.db.fetchval("SELECT COUNT(*) FROM leave_requests WHERE guild_id = ? AND status = 'pending'", (guild_id,), 0)
+        return {"staff": rows, "counts": counts, "total": len(rows), "pending_leave": pending_leave,
+                "week": {"shifts": totals["n"], "hours": round(totals["secs"] / 3600, 1)}, "inactive_days": inactive_days}
+
     async def tick(self, guild_id: int) -> None:
         """Start/end approved leave on its dates; flag inactivity once a week per member."""
         today = utcnow().date().isoformat()

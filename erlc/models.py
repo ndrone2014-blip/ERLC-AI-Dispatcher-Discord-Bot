@@ -131,6 +131,7 @@ class ServerSnapshot:
     emergency_calls: list[EmergencyCall]
     emergency_calls_present: bool  # whether the API actually returned the EmergencyCalls field
     invalid_calls: int = 0
+    raw: dict = field(default_factory=dict)  # v5.0: the documented extra sections (Staff, JoinLogs, ...) are read by erlc.live
 
     @classmethod
     def parse(cls, data: dict) -> "ServerSnapshot":
@@ -154,6 +155,7 @@ class ServerSnapshot:
             emergency_calls=calls,
             emergency_calls_present="EmergencyCalls" in data,
             invalid_calls=invalid,
+            raw=dict(data),
         )
 
     def player_by_id(self, roblox_id: Optional[int]) -> Optional[Player]:

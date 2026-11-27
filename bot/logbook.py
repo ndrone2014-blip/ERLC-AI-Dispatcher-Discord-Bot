@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Optional
 
 import discord
 
+from core import activity
 from core import events as ev
 from core.logging_setup import redact
 from database.models import PRIORITY_LABEL, dumps, loads
@@ -105,6 +106,9 @@ class Logbook:
                     incident_id: Optional[int] = None, actor_id: Optional[int] = None, post: bool = True,
                     embed: Optional[discord.Embed] = None) -> None:
         """Store a log record and (if enabled) post it to the log channel."""
+        # v5.0: the dashboard activity feed records every entry, even for categories that don't post to Discord.
+        await activity.record(self.db, guild_id, category, title, body=redact(activity.summarise(description, fields)),
+                              actor_id=actor_id)
         if not await self.enabled(guild_id, category):
             return
         detail = {"description": redact(description or "")[:1500], "fields": [(n, redact(v)[:500], i) for n, v, i in (fields or [])]}

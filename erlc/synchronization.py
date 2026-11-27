@@ -55,6 +55,7 @@ class SyncManager:
         self.poll_seconds = poll_seconds
         self.guilds: dict[int, GuildSync] = {}
         self._stopping = False
+        self.live = None  # erlc.live.ErlcLive (v5.0), set by the bot
 
     # ------------------------------------------------------------------ lifecycle
     def start_guild(self, guild_id: int) -> None:
@@ -149,7 +150,15 @@ class SyncManager:
                 state = await self.db.fetchone("SELECT last_success_at FROM api_sync_state WHERE guild_id = ?", (gs.guild_id,))
                 bootstrap = state is None or state["last_success_at"] is None
                 await self.db.execute("UPDATE api_sync_state SET last_attempt_at = ? WHERE guild_id = ?", (iso_now(), gs.guild_id))
-                snapshot = await client.get_server(players=True, emergency_calls=True)
+                flags = await self.live.extra_flags(gs.guild_id) if self.live else {}
+                try:
+                    snapshot = await client.get_server(players=True, emergency_calls=True, **flags)
+                except ERLCError as e:
+                    # The extra live sections must never break 911 polling: drop them and retry once without.
+                    if not flags or e.fatal or e.rate_limited or e.code == 3002:
+                        raise
+                    self.live.extras_failed(gs.guild_id, e.friendly())
+                    snapshot = await client.get_server(players=True, emergency_calls=True)
                 gs.last_snapshot = snapshot
                 await self.db.execute(
                     "UPDATE api_sync_state SET connected = 1, last_success_at = ?, consecutive_failures = 0, server_name = ?, "
@@ -161,6 +170,11 @@ class SyncManager:
                 await self._set_status(gs, "connected", detail)
                 stale = int((await self.db.get_config(gs.guild_id, "dispatch_settings", {}) or {}).get("stale_call_s", 900))
                 result = await self.intake_factory().process_snapshot(gs.guild_id, snapshot, bootstrap=bootstrap, stale_after_s=stale)
+                if self.live is not None:
+                    try:
+                        await self.live.process(gs.guild_id, snapshot)
+                    except Exception:
+                        log.exception("ER:LC live processing failed for guild %s", gs.guild_id)
                 gs.recent_calls = [
                     {"number": c.call_number, "started_at": c.started_at, "team": c.team,
                      "location": c.position_descriptor, "description": c.description}
@@ -176,6 +190,11 @@ class SyncManager:
             except ERLCError as e:
                 failures += 1
                 await self._record_error(gs, e, failures)
+                if e.code == 3002 and self.live is not None:  # private server offline = nobody in-game
+                    try:
+                        await self.live.server_offline(gs.guild_id)
+                    except Exception:
+                        log.exception("ER:LC live offline handling failed")
                 if e.rate_limited:
                     await self._set_status(gs, "rate_limited", f"Rate limited, retrying in {int(e.retry_after or 5)}s")
                     await self._sleep(gs, (e.retry_after or 5) + 0.5)
@@ -190,6 +209,22 @@ class SyncManager:
                 log.exception("Unexpected ER:LC sync error for guild %s", gs.guild_id)
                 await self._set_status(gs, "error", f"Internal error: {e.__class__.__name__}")
                 await self._sleep(gs, min(120, self.poll_seconds * (2 ** min(failures, 5))))
+
+    # ------------------------------------------------------------------ v5.0 live management
+    async def run_command(self, guild_id: int, command: str) -> dict:
+        """Run an in-game command as Virtual Server Management. Raises ERLCError (with a friendly message)."""
+        client = await self._client_for(self.state(guild_id))
+        if client is None:
+            raise ERLCError("No ER:LC server key configured.", None, 2000)
+        out = await client.run_command(command)
+        self.trigger(guild_id)  # refresh the player list soon after
+        return out
+
+    async def get_bans(self, guild_id: int) -> dict[str, str]:
+        client = await self._client_for(self.state(guild_id))
+        if client is None:
+            raise ERLCError("No ER:LC server key configured.", None, 2000)
+        return await client.get_bans()
 
     def _interval(self, client: ERLCClient) -> float:
         interval = float(self.poll_seconds)

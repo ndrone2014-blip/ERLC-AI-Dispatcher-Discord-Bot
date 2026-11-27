@@ -1,123 +1,7 @@
 /* Pulse Dispatch dashboard — pages. Loaded after app.js. */
 "use strict";
 
-// ============================================================================ OVERVIEW
-const WIDGETS = { dispatch: "Active incidents", trend: "Activity trend", activity: "Recent activity", moderation: "Recent moderation",
-                  audit: "Audit log", system: "System health", notifications: "Unread notifications", quick: "Quick actions & Ask Pulse",
-                  recent: "Recently visited" };
-const DEFAULT_WIDGETS = ["dispatch", "quick", "trend", "system", "activity", "moderation", "notifications", "audit", "recent"];
-
-page("dashboard", "Dashboard", async (el) => {
-  let [d, prefs] = await Promise.all([api("/overview"), api("/prefs").catch(() => ({}))]);
-  const order = (prefs.widgets || DEFAULT_WIDGETS).filter((w) => WIDGETS[w]);
-  const navPaths = new Set(S.meta.nav.flatMap((g) => g.items.map((i) => i.path)));
-  const seg = (path, v, k, sub, hot) => navPaths.has(path) || path === "dashboard"
-    ? h("button", { class: hot ? "hot" : null, onclick: () => go(path) }, h("div", { class: "v" }, v), h("div", { class: "k" }, k), sub ? h("div", { class: "sub" }, sub) : null) : null;
-  const makeBand = () => h("div", { class: "band", role: "group", "aria-label": "Server status" },
-    seg("members", fmtNum(d.members.total), "Members", d.members.online !== null ? `${fmtNum(d.members.online)} online` : null),
-    seg("verification", fmtNum(d.members.verified), "Verified", d.verification.pending ? `${d.verification.pending} pending` : `${d.verification.today} today`),
-    seg("staff", fmtNum(d.staff.total), "Staff", `${d.staff.on_shift} on shift`),
-    seg("dispatch", fmtNum(d.dispatch.active_incidents), "Active incidents", d.dispatch.critical ? `${d.dispatch.critical} critical` : `${d.dispatch.units.available} units available`, d.dispatch.critical > 0),
-    seg("applications", fmtNum(d.applications.open || 0), "Open applications"),
-    seg("sessions", fmtNum(d.sessions.active), "Active sessions", `${d.sessions.upcoming} scheduled`),
-    seg("automation", fmtNum(d.automations.active), "Automations on"));
-
-  const W = {};
-  W.dispatch = async () => {
-    if (!can("incident.view")) return null;
-    const b = await api("/dispatch");
-    return panel("Active incidents", table([
-      { label: "Priority", render: (i) => prPill(i.effective_priority) }, { label: "#", render: (i) => h("b", { class: "num" }, i.number) },
-      { label: "Nature", key: "nature" }, { label: "Location", key: "location" }, { label: "Units", render: (i) => i.units.map((u) => u.callsign).join(", ") || "None" },
-      { label: "Received", render: (i) => when(i.created_at) }], b.incidents.slice(0, 6),
-      { onRow: () => go("dispatch"), empty: emptyState("No active incidents", "New 911 calls and reports appear here live.") }), link("dispatch", "Open dispatch center"));
-  };
-  W.trend = async () => {
-    if (!can("analytics.view")) return null;
-    const range = prefs.range || "7d";
-    const body = h("div", null, loading());
-    const load = async (r) => {
-      const a = await api(`/analytics?range=${r}`);
-      clear(body, chart(a.days, ["incidents", "member_joins", "verifications", "moderation"].map((k) => ({ label: a.metrics[k].label, values: a.metrics[k].values }))));
-    };
-    const pick = sel({ "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days" }, range);
-    pick.addEventListener("change", async () => { prefs.range = pick.value; api("/prefs", { method: "PUT", body: prefs }).catch(() => {}); load(pick.value); });
-    load(range);
-    return panel("Activity trend", body, pick);
-  };
-  W.activity = async () => panel("Recent activity", d.recent.activity.length
-    ? h("ul", { class: "list" }, d.recent.activity.map((a) => h("li", null, h("span", null, a.text), h("span", { class: "when" }, when(a.at)))))
-    : emptyState("Quiet so far", "Dispatch activity shows up here as it happens."));
-  W.moderation = async () => d.recent.moderation === null ? null : panel("Recent moderation", table([
-    { label: "Case", render: (c) => `#${c.number}` }, { label: "Action", key: "action" }, { label: "Member", render: (c) => who(c.target_id, c.target_name) },
-    { label: "When", render: (c) => when(c.created_at) }], d.recent.moderation, { onRow: (c) => go(`moderation/${c.number}`), empty: emptyState("No cases yet", null) }));
-  W.audit = async () => d.recent.audit === null ? null : panel("Audit log", d.recent.audit.length ? h("ul", { class: "list" }, d.recent.audit.map((a) =>
-    h("li", null, h("code", null, a.action), h("span", { class: "muted" }, a.target || ""), h("span", { class: "when" }, when(a.at))))) : emptyState("No changes yet", null), link("logs/audit", "Full audit log"));
-  W.system = async () => {
-    const s = d.system;
-    return panel("System health", h("dl", { class: "facts" },
-      h("dt", null, "Bot uptime"), h("dd", null, dur(s.uptime_s)),
-      h("dt", null, "Discord latency"), h("dd", null, s.latency_ms === null ? "Connecting…" : `${s.latency_ms} ms`),
-      h("dt", null, "Database"), h("dd", null, s.database.ok ? pill(`Healthy · ${s.database.ms} ms`, "ok") : pill("Not responding", "bad")),
-      h("dt", null, "ER:LC server"), h("dd", null, s.erlc.connected ? pill(`${s.erlc.server || "Connected"} · ${s.erlc.players}/${s.erlc.max_players}`, "ok")
-        : s.erlc.configured ? pill(s.erlc.last_error ? "Connection problem" : "Not connected", "warn") : pill("Not set up", "off")),
-      h("dt", null, "AI"), h("dd", null, s.ai.active ? pill(`${s.ai.active.label} · ${s.ai.active.latency_ms} ms`, "ok")
-        : s.ai.configured ? pill(`${s.ai.configured} provider(s) ready`, "info") : pill("Local recognition only", "off"))));
-  };
-  W.notifications = async () => panel("Unread notifications", d.notifications.length ? h("ul", { class: "list" }, d.notifications.map((n) =>
-    h("li", null, h("span", { class: `pill s-${n.severity === "critical" ? "bad" : n.severity === "warning" ? "warn" : "info"}` }, n.kind), h("span", null, n.title), h("span", { class: "when" }, when(n.created_at)))))
-    : emptyState("All caught up", null));
-  W.quick = async () => {
-    const acts = [];
-    if (can("incident.manual_create")) acts.push(h("button", { class: "btn primary", onclick: () => incidentCreate(() => renderPage("dashboard")) }, "New incident"));
-    if (can("shift.self")) acts.push(h("button", { class: "btn", onclick: () => go("shifts") }, "My shift"));
-    if (can("announcement.send")) acts.push(h("button", { class: "btn", onclick: () => go("announcements") }, "Send announcement"));
-    if (can("mod.warn")) acts.push(h("button", { class: "btn", onclick: () => caseCreate() }, "New moderation case"));
-    return panel("Quick actions", h("div", null, h("div", { class: "row", style: "margin-bottom:14px" }, acts), can("assistant.use") ? assistantBox() : null));
-  };
-  W.recent = async () => {
-    const r = store.get(`pd-recent-${S.gid}`, []);
-    return r.length ? panel("Recently visited", h("div", { class: "row" }, r.map((x) => h("a", { class: "btn sm", href: `#/g/${S.gid}/${x.path}` }, x.title)))) : null;
-  };
-  const wide = new Set(["dispatch", "trend"]);
-  const grid = h("div", { class: "panels" });
-  const bandSlot = h("div", null, makeBand());
-  clear(el, head("Dashboard", `${S.meta.guild.name} at a glance. Click any number for details.`,
-    h("button", { class: "btn", onclick: () => customize(order, prefs) }, "Customize")), bandSlot, grid);
-  const slots = {};
-  for (const key of order) {
-    const slot = h("div", { class: wide.has(key) ? "span-8" : "span-4" }, loading());
-    slots[key] = slot;
-    grid.append(slot);
-    W[key]().then((node) => node ? clear(slot, node) : slot.remove()).catch((e) => clear(slot, errorBox(e)));
-  }
-  // Live refresh: update numbers and panels in place; the quick-actions panel (with the Ask box) is left alone.
-  S.refresh = async () => {
-    if (S.path !== "dashboard" && S.path !== "") return;
-    try { d = await api("/overview"); } catch { return; }
-    clear(bandSlot, makeBand());
-    for (const key of order) {
-      if (key === "quick" || key === "trend" || !slots[key].isConnected) continue;
-      W[key]().then((node) => node && clear(slots[key], node)).catch(() => {});
-    }
-  };
-});
-function customize(order, prefs) {
-  let list = [...order, ...Object.keys(WIDGETS).filter((w) => !order.includes(w)).map((w) => "-" + w)];
-  const body = h("div");
-  const draw = () => clear(body, h("p", { class: "muted" }, "Choose the panels you want and their order. Only you see this layout."),
-    h("ul", { class: "list" }, list.map((w, i) => {
-      const key = w.replace(/^-/, ""), on = !w.startsWith("-");
-      return h("li", null, h("label", { class: "check", style: "margin:0;flex:1" }, h("input", { type: "checkbox", checked: on, onchange: (e) => { list[i] = e.target.checked ? key : "-" + key; } }), WIDGETS[key]),
-        h("button", { class: "btn sm", "aria-label": "Move up", disabled: i === 0, onclick: () => { [list[i - 1], list[i]] = [list[i], list[i - 1]]; draw(); } }, "↑"),
-        h("button", { class: "btn sm", "aria-label": "Move down", disabled: i === list.length - 1, onclick: () => { [list[i + 1], list[i]] = [list[i], list[i + 1]]; draw(); } }, "↓"));
-    })));
-  draw();
-  modal({ title: "Customize dashboard", body, actions: [
-    { label: "Reset", onClick: async () => { await act(() => api("/prefs", { method: "PUT", body: { ...prefs, widgets: DEFAULT_WIDGETS } })); renderPage("dashboard"); } },
-    { label: "Save layout", primary: true, onClick: async () => { await act(() => api("/prefs", { method: "PUT", body: { ...prefs, widgets: list.filter((w) => !w.startsWith("-")) } }), "Layout saved."); renderPage("dashboard"); } }] });
-}
-
+// The dashboard and activity feed live in pages-v5.js (v5.0).
 page("analytics", "Analytics", async (el) => {
   let range = "7d", custom = { start: "", end: "" };
   const body = h("div");
@@ -149,17 +33,6 @@ page("analytics", "Analytics", async (el) => {
   const exp = can("logs.export") ? h("a", { class: "btn", href: "#", onclick: (e) => { e.preventDefault(); toast("Use Logging → Log viewer → Export for CSV exports of events."); } }, "Export") : null;
   clear(el, head("Analytics", "Trends across dispatch, community and staff activity.", exp), tabRow, customRow, body);
   load();
-});
-
-page("activity", "Activity feed", async (el) => {
-  const d = await api("/activity");
-  const byDay = {};
-  for (const r of d.items) (byDay[new Date(r.at).toLocaleDateString()] ||= []).push(r);
-  clear(el, head("Activity feed", "Calls, incidents, members, applications, staff and sessions as they happen."),
-    Object.keys(byDay).length ? Object.entries(byDay).map(([day, rows]) => panel(day, h("ul", { class: "list" }, rows.map((r) =>
-      h("li", null, pill(r.category, "info"), h("span", null, r.title), r.actor_id ? h("span", { class: "muted small" }, `by ${r.actor_id}`) : null, h("span", { class: "when" }, when(r.at)))))))
-      : emptyState("No activity yet", "Turn on log categories under Logging → Log routing to record more events."));
-  S.refresh = () => renderPage("activity");
 });
 
 // ============================================================================ DISPATCH

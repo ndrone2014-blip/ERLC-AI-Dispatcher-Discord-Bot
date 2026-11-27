@@ -3,9 +3,10 @@
 An intelligent, realistic dispatch operation and **ER:LC community management platform** for **Emergency Response:
 Liberty County** roleplay communities: a Discord bot **plus a web dashboard it serves itself**.
 
-> 🖥️ **Command Center Update (v4.0.0)** — web dashboard, Roblox verification, staff & shifts, sessions, applications,
-> moderation cases, automations, notifications, embed builder and the Pulse Assistant. See **[CHANGELOG.md](CHANGELOG.md)**,
-> **[docs/DASHBOARD.md](docs/DASHBOARD.md)** and **[docs/ROBLOX_VERIFICATION.md](docs/ROBLOX_VERIFICATION.md)**.
+> 🚀 **Platform Overhaul (v5.0.0)** — a completely redesigned dark dashboard that never reloads, ER:LC live server
+> management, an in-game + Discord moderation center with player profiles, a BOLO board, staff overview with LOA, an
+> activity feed and a command palette. Still 100% free. See **[CHANGELOG.md](CHANGELOG.md)** and
+> **[docs/DASHBOARD.md](docs/DASHBOARD.md)**.
 
 * Detects **in-game 911 calls automatically** through the official ER:LC API and announces them **out loud** in a Discord
   voice channel with a radio-style dispatcher voice.
@@ -163,6 +164,7 @@ See **[docs/VOICE.md](docs/VOICE.md)** for an important note about Discord's end
 | **AI** | `/ai-status` · `/ai-provider list\|guide\|key\|remove-key\|prefer\|mode\|enable` · `/ai-test` · `/ai-model` · `/ai-failover` · `/ai status\|test\|primary` |
 | **Information** | `/help` · `/about` · `/statistics` · `/stats` · `/ping` · `/version` · `/erlc` · `/voice join\|leave\|listen\|mute\|test\|diagnose` |
 | **Community** (v4.0) | `/verify` · `/verification lookup\|link\|unlink\|sync\|roles\|panel\|history\|status` · `/profile` · `/member info\|note` · `/apply` · `/application list\|review\|note\|respond\|mine\|preset\|toggle` · `/session create\|start\|end\|list\|join` · `/announcement` · `/ask` · `/server-info` · `/bot-info` · `/dashboard web` |
+| **In-game moderation** (v5.0) | `/ingame warn\|kick\|ban\|tempban\|unban\|note\|lookup\|players` |
 | **Staff & moderation** (v4.0) | `/staff add\|promote\|demote\|remove\|info\|list\|note\|leave` · `/shift start\|end\|note\|status\|active\|leaderboard` · `/warn` · `/timeout` · `/kick` · `/ban` · `/unban` · `/history` · `/case view\|revoke\|edit` · `/report-member` |
 
 Destructive actions (`/incident-close`, `/incident-close-all`, `/reset-settings`, `/kick`, `/ban`, `/staff remove`) ask for confirmation. Permissions are enforced on every

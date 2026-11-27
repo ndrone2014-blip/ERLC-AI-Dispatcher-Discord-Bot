@@ -11,7 +11,7 @@ async function staffModal(uid) {
   body.append(h("div", { class: "panels", style: "margin-top:14px" },
     h("div", { class: "span-6" }, h("h3", null, "History"), h("ul", { class: "list" }, p.history.map((x) => h("li", null, h("b", null, x.action), x.to_rank ? `${x.from_rank ? x.from_rank + " → " : ""}${x.to_rank}` : "", x.reason ? h("span", { class: "muted small" }, x.reason) : null, h("span", { class: "when" }, when(x.at)))))),
     h("div", { class: "span-6" }, h("h3", null, "Recent shifts"), p.recent_shifts.length ? h("ul", { class: "list" }, p.recent_shifts.map((x) => h("li", null, x.shift_type, h("span", { class: "muted" }, dur(x.duration_s)), h("span", { class: "when" }, when(x.started_at))))) : h("p", { class: "muted" }, "No shifts yet."),
-      p.moderation_actions.length ? [h("h3", { style: "margin-top:12px" }, "Moderation actions"), h("ul", { class: "list" }, p.moderation_actions.map((c) => h("li", null, link(`moderation/${c.number}`, `#${c.number} ${c.action}`), h("span", { class: "when" }, when(c.created_at)))))] : null)));
+      p.moderation_actions.length ? [h("h3", { style: "margin-top:12px" }, "Moderation actions"), h("ul", { class: "list" }, p.moderation_actions.map((c) => h("li", null, link(`moderation/discord/${c.number}`, `#${c.number} ${c.action}`), h("span", { class: "when" }, when(c.created_at)))))] : null)));
   if (p.notes) {
     const note = h("input", { type: "text", maxlength: 1000, placeholder: "Confidential note (management only)" });
     body.append(h("h3", { style: "margin-top:14px" }, "Confidential notes"), h("ul", { class: "list" }, p.notes.map((n) => h("li", null, n.note, h("span", { class: "when" }, when(n.created_at))))),
@@ -63,52 +63,7 @@ page("staff", "Staff directory", async (el, args) => {
   S.refresh = load;
 });
 
-page("shifts", "Shifts", async (el) => {
-  const d = await api("/shifts");
-  const me = d.me, cur = me.current;
-  const type = sel(Object.fromEntries(d.types.map((t) => [t, t])), d.types[0]);
-  const notes = h("input", { type: "text", placeholder: "Shift notes (optional)", maxlength: 500 });
-  const mine = panel("My shift", h("div", null,
-    cur ? h("p", null, pill(`On ${cur.shift_type} shift`, "ok"), " since ", when(cur.started_at)) : h("p", { class: "muted" }, "You're off shift."),
-    h("dl", { class: "facts" }, h("dt", null, "This week"), h("dd", null, me.week_text), h("dt", null, "All time"), h("dd", null, `${me.total_text} over ${me.count} shift(s)`)),
-    h("div", { class: "row", style: "margin-top:12px" }, cur ? [h("div", { class: "fill" }, notes), h("button", { class: "btn danger solid", onclick: async () => {
-      await act(() => api("/shifts/end", { method: "POST", body: { notes: notes.value } }), "Shift ended."); renderPage("shifts"); } }, "End shift")]
-      : [type, h("button", { class: "btn primary", onclick: async () => { await act(() => api("/shifts/start", { method: "POST", body: { type: type.value } }), "Shift started."); renderPage("shifts"); } }, "Start shift")])));
-  const parts = [h("div", { class: "span-4" }, mine)];
-  if (d.active) {
-    parts.push(h("div", { class: "span-8" }, panel(`On shift now (${d.active.length})`, table([{ label: "Member", render: (s) => who(s.user_id, s.display_name || s.username, s.avatar_url) },
-      { label: "Type", key: "shift_type" }, { label: "Elapsed", render: (s) => dur(s.elapsed_s) },
-      { label: "", cls: "actions", render: (s) => can("shift.manage") && s.user_id !== S.me.user.id ? h("button", { class: "btn sm", onclick: async () => {
-        if (!(await confirmDialog("End their shift?", `End ${s.display_name || s.username || s.user_id}'s shift now?`, "End shift"))) return;
-        await act(() => api("/shifts/end", { method: "POST", body: { user_id: s.user_id, notes: "Ended by a supervisor" } }), "Shift ended."); renderPage("shifts"); } }, "End") : null }],
-      d.active, { empty: emptyState("Nobody is on shift", null) }))));
-    parts.push(h("div", { class: "span-5" }, panel("Most hours · 7 days", table([{ label: "Member", render: (r) => who(r.user_id, r.display_name || r.username) }, { label: "Hours", key: "hours" }, { label: "Shifts", key: "shifts" }], d.leaderboard))));
-  }
-  parts.push(h("div", { class: d.active ? "span-7" : "span-8" }, panel(d.active ? "Shift history" : "My history", table([{ label: "Member", render: (s) => who(s.user_id, s.display_name || s.username) },
-    { label: "Type", key: "shift_type" }, { label: "Started", render: (s) => when(s.started_at) }, { label: "Length", render: (s) => dur(s.duration_s) }, { label: "Notes", key: "notes" }], d.history.items))));
-  clear(el, head("Shifts", "Start and end shifts here or with /shift in Discord."), h("div", { class: "panels" }, parts));
-  S.refresh = () => renderPage("shifts");
-});
-
-page("staff/leave", "Leave requests", async (el) => {
-  let status = "pending";
-  const out = h("div");
-  const load = async () => {
-    const d = await api(`/staff/leave?status=${status}`);
-    clear(out, table([{ label: "Member", render: (r) => who(r.user_id, r.display_name || r.username) }, { label: "From", key: "starts_on" }, { label: "To", key: "ends_on" },
-      { label: "Reason", key: "reason" }, { label: "Status", render: (r) => pill(r.status, r.status === "approved" ? "ok" : r.status === "denied" ? "bad" : "warn") },
-      { label: "", cls: "actions", render: (r) => r.status === "pending" ? h("span", null,
-        h("button", { class: "btn sm", onclick: async () => { await act(() => api(`/staff/leave/${r.id}`, { method: "POST", body: { approve: false } }), "Denied."); load(); } }, "Deny"), " ",
-        h("button", { class: "btn sm primary", onclick: async () => { await act(() => api(`/staff/leave/${r.id}`, { method: "POST", body: { approve: true } }), "Approved."); load(); } }, "Approve")) : null }],
-      d.items, { empty: emptyState(status === "pending" ? "No requests waiting" : "No leave requests", "Staff request leave with /staff leave.") }));
-  };
-  const s = sel({ pending: "Waiting for review", approved: "Approved", denied: "Denied", "": "All" }, status);
-  s.addEventListener("change", () => { status = s.value; load(); });
-  clear(el, head("Leave requests", "Approved leave starts and ends automatically on its dates."), h("div", { class: "filters" }, s), out);
-  await load();
-  S.refresh = load;
-});
-
+// Shifts and leave (LOA) pages live in pages-v5.js (v5.0).
 page("staff/settings", "Staff settings", async (el) => {
   const d = await api("/staff/settings");
   let ranks = d.staff.ranks.map((r) => ({ ...r }));
@@ -165,7 +120,7 @@ async function caseModal(n) {
     c.duration_s ? [h("dt", null, "Duration"), h("dd", null, dur(c.duration_s))] : null, h("dt", null, "Created"), h("dd", null, when(c.created_at)), h("dt", null, "Source"), h("dd", null, c.source),
     h("dt", null, "Outcome"), h("dd", null, c.outcome || "—")), h("label", { class: "field", style: "margin-top:14px" }, h("span", null, "Reason"), reason), h("label", { class: "field" }, h("span", null, "Evidence"), evidence)), actions });
 }
-page("moderation", "Moderation cases", async (el, args) => {
+page("moderation/discord", "Discord cases", async (el, args) => {
   if (args[0] && /^\d+$/.test(args[0])) setTimeout(() => caseModal(args[0]), 0);
   const q = { q: "", action: "", status: "", page: 1 };
   const out = h("div");
@@ -177,7 +132,7 @@ page("moderation", "Moderation cases", async (el, args) => {
       d.items, { onRow: (c) => caseModal(c.number), empty: emptyState("No cases match", "Cases are created by /warn, /timeout, /kick, /ban and here.") }), pager(d, (p) => { q.page = p; load(); }));
   };
   const f = (key, opts) => { const x = sel(opts, ""); x.addEventListener("change", () => { q[key] = x.value; q.page = 1; load(); }); return x; };
-  clear(el, head("Moderation cases", "Every warning, timeout, kick and ban with its outcome.", can("mod.warn") ? h("button", { class: "btn primary", onclick: () => caseCreate() }, "New case") : null),
+  clear(el, head("Discord cases", "Every Discord warning, timeout, kick and ban with its outcome.", can("mod.warn") ? h("button", { class: "btn primary", onclick: () => caseCreate() }, "New case") : null),
     h("div", { class: "filters" }, h("input", { type: "search", placeholder: "Reason, member, user ID or #case", oninput: debounce((e) => { q.q = e.target.value; q.page = 1; load(); }, 300) }),
       f("action", { "": "Any action", ...MOD_ACTIONS }), f("status", { "": "Any status", active: "Active", revoked: "Revoked", failed: "Failed" })), out);
   await load();
@@ -445,7 +400,7 @@ page("commands", "Slash commands", async (el) => {
 });
 page("bot/appearance", "Appearance", async (el) => {
   const a = await api("/bot/appearance");
-  clear(el, head("Appearance", "How Pulse Dispatch's Discord messages look. Your own dashboard theme is switched with the Light/Dark mode button at the top."),
+  clear(el, head("Appearance", "How Pulse Dispatch's Discord messages look."),
     settingsPanel("Discord embeds", [{ key: "accent", label: "Accent colour", type: "color" }, { key: "footer_note", label: "Footer note", max: 60, help: "Shown after 'Pulse Dispatch | ERLC'." },
       { key: "compact", label: "Compact messages", type: "check" }, { key: "show_thumbnails", label: "Show thumbnails", type: "check" }], { ...a, accent: a.accent_hex },
       (v) => api("/bot/appearance", { method: "PUT", body: v })));
@@ -577,5 +532,3 @@ page("settings/security", "Security", async (el) => {
       h("li", null, "API keys and the ER:LC key are encrypted and can never be read back through the dashboard."),
       h("li", null, "Every change is recorded in the audit log with who made it."))));
 });
-
-boot();

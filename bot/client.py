@@ -58,7 +58,9 @@ COGS = ["bot.commands.setup", "bot.commands.dispatch", "bot.commands.units", "bo
         "bot.commands.pulse_info", "bot.commands.pulse_guide",
         # v4.0 Command Center
         "bot.commands.community_members", "bot.commands.community_moderation", "bot.commands.community_staff",
-        "bot.commands.community_applications", "bot.commands.community_assistant"]
+        "bot.commands.community_applications", "bot.commands.community_assistant",
+        # v5.0 Platform Overhaul
+        "bot.commands.community_erlc"]
 
 
 class DispatchBot(commands.Bot):
@@ -92,6 +94,7 @@ class DispatchBot(commands.Bot):
         self.webhook_server: Optional[WebhookServer] = None
         self.community: CommunityPlatform = None  # type: ignore[assignment]
         self.web = None  # web.server.DashboardServer when the dashboard is enabled
+        self.erlc_live = None  # erlc.live.ErlcLive (v5.0)
         self._tasks: list[asyncio.Task] = []
         self._card_locks: dict[int, asyncio.Lock] = {}
         self._card_pending: set[int] = set()
@@ -163,6 +166,14 @@ class DispatchBot(commands.Bot):
         self.sync = SyncManager(self.db, self.bus, self.secrets, self.session, lambda: self.core.intake,
                                 base_url=s.erlc_base_url, env_server_key=s.erlc_server_key, env_global_key=s.erlc_global_key,
                                 env_guild_id=s.dev_guild_id, poll_seconds=s.erlc_poll_seconds)
+        # v5.0: live player list, joins/leaves, in-game staff and in-game moderation share the same poll.
+        from erlc.live import ErlcLive
+
+        async def _live_extras_on(gid: int) -> bool:
+            return bool(await self.db.get_config(gid, "erlc_live_extras", True))
+        self.erlc_live = ErlcLive(self.db, self.bus, notify=self.community.notifications.create, enabled_check=_live_extras_on)
+        self.sync.live = self.erlc_live
+        self.community.erlc_moderation.erlc = self._ErlcBridge(self)
         self.player = AnnouncementPlayer(self.voice, self.tts, self.core.announcements, self.bus)
         self.voice_commands = VoiceCommandProcessor(self.core, self.voice, self.stt, self.permissions, self._voice_log,
                                                     self._member_lookup)
@@ -398,6 +409,19 @@ class DispatchBot(commands.Bot):
             except Exception:
                 log.exception("Automatic backup failed")
 
+    class _ErlcBridge:
+        """What the in-game moderation service needs from the ER:LC integration (no discord.py inside)."""
+
+        def __init__(self, bot):
+            self.bot = bot
+
+        @property
+        def live(self):
+            return self.bot.erlc_live
+
+        async def run_command(self, guild_id: int, command: str) -> dict:
+            return await self.bot.sync.run_command(guild_id, command)
+
     async def _community_loop(self) -> None:
         """Reminders, scheduled messages, leave dates, overdue shifts and auto-archiving (v4.0)."""
         await self.wait_until_ready()
@@ -416,8 +440,11 @@ class DispatchBot(commands.Bot):
                     await self.community.shifts.close_overdue(g.id)
                     if tick % 10 == 1:
                         await self.community.staff.tick(g.id)
+                    await self.community.erlc_moderation.expire_tempbans(g.id)
                     if tick % 60 == 1:
                         await self.community.applications.tick(g.id)
+                        from core import activity
+                        await activity.prune(self.db, g.id)
                 except Exception:
                     log.exception("Community tick failed for %s", g.id)
 

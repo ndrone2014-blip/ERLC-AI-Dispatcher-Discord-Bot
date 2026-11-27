@@ -1,19 +1,18 @@
 """Release information."""
 NAME = "Pulse Dispatch | ERLC"
-VERSION = "4.0.0"
-RELEASE = "Command Center Update"
+VERSION = "5.0.0"
+RELEASE = "Platform Overhaul"
 RELEASE_DATE = "2026-11-27"
 REPO_URL = "https://github.com/ndrone2014-blip/ERLC-AI-Dispatcher-Discord-Bot"
 CREDIT = "Developed by Drone Hive Studios | Developer @ndrone40"
 
 HIGHLIGHTS = [
-    "🖥️ Web dashboard: Discord sign-in, live Dispatch Center, analytics, every setting in one place - mobile friendly",
-    "✅ Roblox verification: profile-code method (no setup) or official Roblox sign-in, roles + nicknames",
-    "👥 Staff management: directory, ranks, promotions, notes, leave requests, shifts with on-duty roles",
-    "🛡️ Moderation center: numbered cases, warn / timeout / kick / ban / unban, member reports, auto-escalation",
-    "📝 Applications: custom forms with 6 answer types, review workflow, approval roles",
-    "⚙️ Automations & scheduled messages with loop and duplicate protection",
-    "🎮 Sessions with announcements, reminders and participants",
-    "🧠 Pulse Assistant (/ask): instant local answers from live data, AI only for conversation, never invents facts",
-    "🔔 Notifications, 13 new log categories, embed builder, welcome messages",
+    "🖥️ Brand-new dark dashboard: sidebar, command palette (Ctrl K), notification center, skeleton loading, phone layouts",
+    "⚡ No more page reloads: live updates change only what changed and keep your scroll, tabs and typing",
+    "🎮 ER:LC live server: players, in-game staff, joins & leaves, join/kill/command logs, mod calls, ban list, server console",
+    "🚔 Moderation center: in-game warn / kick / ban / temp ban / unban with optional in-game execution, player profiles, stats",
+    "👁️ BOLO board: priorities, linked players, notes, close/reopen, alerts when a BOLO player joins (never an auto-ban)",
+    "👥 Staff overview: availability, hours, performance, LOA requests and approvals from the dashboard",
+    "📰 Activity feed with filters, search and pagination; global search across players, members, cases and BOLOs",
+    "🆓 Still 100% free: no premium tiers, no paid unlocks",
 ]

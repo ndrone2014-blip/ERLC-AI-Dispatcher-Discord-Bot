@@ -165,6 +165,11 @@ class ERLCClient:
     async def run_command(self, command: str) -> dict:
         return await self._request("POST", "/v2/server/command", json={"command": command}) or {}
 
+    async def get_bans(self) -> dict[str, str]:
+        """Documented v1 endpoint: {"RobloxId": "Username", ...}. Raises ERLCError if unavailable."""
+        data = await self._request("GET", "/v1/server/bans")
+        return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
 
 def _code(body: Any) -> Optional[int]:
     if isinstance(body, dict):

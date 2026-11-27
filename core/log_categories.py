@@ -30,6 +30,10 @@ LOG_CATEGORIES: dict[str, tuple[str, str]] = {
     "security": ("Security events (dashboard sign-ins, denied access)", "🔐"),
     "dashboard": ("Dashboard activity", "🖥️"),
     "errors": ("System errors", "🧯"),
+    # v5.0 Platform Overhaul
+    "erlc_players": ("In-game player joins & leaves", "🎮"),
+    "erlc_moderation": ("In-game moderation (ER:LC)", "🚔"),
+    "erlc_commands": ("In-game commands run from the dashboard", "⌨️"),
 }
 # Noisy categories start switched off; administrators can turn them on.
-DEFAULT_ENABLED = {k: k not in {"commands", "roles", "dashboard"} for k in LOG_CATEGORIES}
+DEFAULT_ENABLED = {k: k not in {"commands", "roles", "dashboard", "erlc_players"} for k in LOG_CATEGORIES}

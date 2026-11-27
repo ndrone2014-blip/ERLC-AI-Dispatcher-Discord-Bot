@@ -1,5 +1,79 @@
 # Changelog
 
+## 🚀 Pulse Dispatch | ERLC — Platform Overhaul · v5.0.0 (2026-11-27)
+
+Pulse Dispatch becomes a complete ER:LC management platform. **Everything from v4 keeps working**: settings, data,
+commands and integrations are preserved. New tables are added automatically on first start (migration `005_platform.sql`
+only adds tables and columns). Still **100% free**: no premium tiers, no paid unlocks, no artificial limits.
+
+> After updating: `git pull`, restart the bot. On Netlify the new dashboard deploys automatically from GitHub.
+> New permissions (Settings → Permissions): `erlc.view`, `erlc.moderate`, `erlc.ban`, `erlc.command`. Their defaults
+> follow your existing groups (team / moderators / management / admins), so most servers need no changes.
+
+### 🖥️ Completely redesigned dashboard (dark mode only)
+- New design system: professional sidebar with icons and collapsible groups, sticky top bar with breadcrumbs, consistent
+  spacing and typography, statistic cards, clean SVG charts with gradients, better tables, modern toasts, skeleton
+  loading, empty states with guidance, tooltips and smooth (reduced-motion aware) animations. Light mode is removed.
+- Uses the screen well from phones to ultra-wide monitors: 12-column grid, content max width, tables become cards on
+  phones, slide-in menu, bottom-sheet dialogs on mobile.
+- **Command palette** (Ctrl K / ⌘K or `/`): jump to any page, run quick actions (start shift, moderate a player,
+  create a BOLO…) and search players, members, staff, incidents, BOLOs, cases and applications.
+- **Notification center** drawer with All / Unread, mark-as-read and links. First-visit onboarding.
+- Customizable overview: choose which numbers and panels you see and reorder them (saved per user).
+
+### ⚡ No more full-page refreshing (the root cause is fixed)
+- The ER:LC loop sent a "still connected" event after every poll, and every page rebuilt itself on every event, so the
+  page was wiped and redrawn every few seconds. Poll heartbeats are no longer sent to the browser, and pages now
+  subscribe only to the events that matter to them.
+- Pages update their own data regions in place. Scroll position, current route, tab, open menus/modals and anything
+  you're typing are preserved. Updates pause while you type and while the tab is hidden; identical requests are shared.
+- A session that expires shows a banner instead of reloading the app and losing your work.
+
+### 🎮 ER:LC live management
+- The same single poll now also asks for the documented `Staff`, `JoinLogs`, `Queue`, `ModCalls`, `CommandLogs` and
+  `KillLogs` sections. If ER:LC refuses them they're switched off for 15 minutes and 911 polling carries on.
+- **Live server** page: live player list (team, callsign, location, in-game staff from the API's permission field, BOLO
+  flags), player count, server status, joins & leaves, join log, kill log, command log, mod calls, server staff and the
+  ER:LC ban list. **Server console** to run commands (`erlc.command`, audited).
+- Joins/leaves are detected by comparing the real player list between polls; the first poll after start-up is only a
+  baseline. **Players** directory remembers everyone seen in your server.
+- Nothing is invented: unavailable sections and connection problems are shown as such.
+
+### 🚔 Moderation center
+- One place for in-game and Discord moderation: statistics, actions over time, top moderators, latest actions, quick
+  player lookup.
+- **In-game records** against Roblox players: warning, kick, ban, temporary ban, unban and notes. Optionally carried out
+  in-game (`:pm`, `:kick`, `:ban`, `:unban`) with the result stored on the record — a failed command is recorded
+  honestly. Temporary bans lift themselves (and send `:unban` if the ban was sent in-game).
+- **Player profiles**: records, private notes, sessions (joins/leaves), BOLOs, linked Discord account and its cases.
+- **Active punishments**, **staff moderation records** and the existing Discord cases and member reports.
+- Discord: `/ingame warn | kick | ban | tempban | unban | note | lookup | players`.
+
+### 👁️ BOLO board
+- Priorities (low → critical), types (player, person, vehicle, other), linked Roblox player, notes/updates, search,
+  filters, pagination, close with reason, reopen, full history and the staff member who created it.
+- Authorized staff are notified about new BOLOs, and when a player with an active BOLO **joins the server**.
+  A BOLO is information only: it never bans or kicks anyone.
+
+### 👥 Staff management
+- **Staff overview**: on shift / available / on leave / inactive, hours (7 and 30 days), shifts, moderation actions.
+- **Shifts** page with a live timer, start/end, who's on shift now, leaderboard and history. Duplicate shifts are
+  impossible (checked in the database) and shifts left running end automatically after the configured limit.
+- **Leave (LOA)**: request leave and cancel it from the dashboard; reviewers approve or deny with one click.
+
+### 📰 Activity & overview
+- **Activity feed**: player joins/leaves, moderation, shifts, BOLOs, sessions, applications, verification and admin
+  actions — recorded even when that log category doesn't post to Discord — with filters, search, timestamps and
+  pagination. You only see categories your permissions allow.
+- Overview adds players in-game, in-game staff, active BOLOs, unread notifications, a 14-day activity trend, my shift,
+  and Discord / ER:LC / database / dashboard API health.
+
+### 🔐 Security & reliability
+- Every new route is permission-checked on the server, scoped to one server and audit-logged; in-game commands are
+  validated (single line, Roblox username rules) so nothing can be injected into a command.
+- 17 new automated tests (permissions, unauthorized access, persistence, join/leave detection, BOLO alerts, temp-ban
+  expiry, sync-loop fallback, server isolation).
+
 ## ⚡ No-bio verification (2026-11-27)
 - **Verify** now works like Bloxlink/Melonly: members already verified with **Bloxlink** or **RoVer** are verified in
   one click (and automatically when they join). Add the server API keys on **Verification → Settings**, with a

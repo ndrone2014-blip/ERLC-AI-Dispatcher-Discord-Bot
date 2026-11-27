@@ -82,7 +82,8 @@ def test_routes_and_nav_use_real_permissions():
         assert perm is None or perm in DEFAULT_PERMISSIONS, (handler, perm)
     for _g, items in NAV:
         for _path, _label, perm in items:
-            assert perm in DEFAULT_PERMISSIONS
+            for p in (perm if isinstance(perm, tuple) else (perm,)):
+                assert p in DEFAULT_PERMISSIONS, p
     assert len({(m, p) for m, p, _h, _x in ROUTES}) == len(ROUTES), "duplicate route"
 
 
