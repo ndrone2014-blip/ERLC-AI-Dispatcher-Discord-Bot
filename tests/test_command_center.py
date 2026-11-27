@@ -398,3 +398,59 @@ async def test_assistant_answers_from_real_data(platform, core):
     assert done.ok and await p.shifts.current(GUILD, 10)
     none = await p.assistant.ask(GUILD, 10, ALL, "what's the meaning of life", allow_ai=False)
     assert none.source == "none"
+
+
+# ------------------------------------------------------------------ instant verification (Bloxlink / RoVer)
+class FakeSecrets:
+    def __init__(self):
+        self.d = {}
+
+    async def get(self, g, n):
+        return self.d.get((g, n))
+
+    async def set(self, g, n, v, actor_id=None):
+        self.d[(g, n)] = v
+
+    async def delete(self, g, n):
+        self.d.pop((g, n), None)
+
+    async def exists(self, g, n):
+        return (g, n) in self.d
+
+
+@pytest.mark.asyncio
+async def test_instant_verification_through_bloxlink_and_rover(db, core):
+    from community.roblox import RobloxError
+    roblox = FakeRoblox()
+    calls = []
+
+    async def bloxlink(g, d, key):
+        calls.append(("bloxlink", key))
+        raise RobloxError("The API key was rejected.")
+
+    async def rover(g, d, key):
+        calls.append(("rover", key))
+        return 42 if d == 10 else None
+
+    roblox.bloxlink_lookup, roblox.rover_lookup = bloxlink, rover
+    p = CommunityPlatform(db, core.bus, AuditLog(db), PermissionManager(db), actions=RecordingActions(), roblox=roblox,
+                          dispatch=core, secrets=FakeSecrets())
+    # no keys saved -> nothing is looked up, nobody is linked
+    assert await p.verification.try_external(GUILD, 10) is None and not calls
+    with pytest.raises(ValidationError):
+        await p.verification.set_external_key(GUILD, "rover", "short", 1)
+    await p.verification.set_external_key(GUILD, "bloxlink", "bl-key-123456", 1)
+    await p.verification.set_external_key(GUILD, "rover", "rv-key-123456", 1)
+    assert await p.verification.external_status(GUILD) == {"bloxlink": True, "rover": True}
+    # Bloxlink fails, RoVer knows the member -> linked, and the failure is logged instead of blocking
+    res = await p.verification.try_external(GUILD, 10)
+    assert res["method"] == "rover" and res["roblox"]["name"] == "BuilderBob"
+    assert [c[0] for c in calls] == ["bloxlink", "rover"]
+    link = await p.verification.get_link(GUILD, 10)
+    assert link["method"] == "rover"
+    # someone neither service knows is not linked
+    assert await p.verification.try_external(GUILD, 20) is None
+    assert await p.verification.get_link(GUILD, 20) is None
+    test = await p.verification.test_external(GUILD, "rover", 10)
+    assert "BuilderBob" in test["message"]
+    await settle()

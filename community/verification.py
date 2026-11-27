@@ -50,7 +50,13 @@ DEFAULTS = {
     "allow_oauth": True,
     "dm_on_verify": True,
     "panel_channel_id": None,
+    "use_bloxlink": True,         # check Bloxlink first (needs the server's Bloxlink API key)
+    "use_rover": True,            # check RoVer first (needs the server's RoVer API key)
+    "auto_verify_on_join": True,  # new members already linked in Bloxlink/RoVer are verified automatically
 }
+EXTERNAL = {"bloxlink": "Bloxlink", "rover": "RoVer"}
+METHOD_LABEL = {"profile_code": "Profile code", "oauth": "Roblox sign-in (OAuth)", "manual": "Linked by staff",
+                "bloxlink": "Imported from Bloxlink", "rover": "Imported from RoVer"}
 
 
 def new_code() -> str:
@@ -324,7 +330,7 @@ class VerificationService:
                             actor_id, clean_text(reason, 300) or None)
         problems = await self._apply_discord(guild_id, int(discord_id), user.name, user.display_name)
         await self.p.audit.record(guild_id, actor_id, "verification.link", str(discord_id), {"roblox": user.name, "method": method})
-        label = {"profile_code": "Profile code", "oauth": "Roblox sign-in (OAuth)", "manual": "Linked by staff"}[method]
+        label = METHOD_LABEL.get(method, method)
         await self.p.log(guild_id, "verification", "Roblox Account Verified",
                          fields=[("Member", f"<@{discord_id}>", True), ("Roblox", f"[{user.name}](https://www.roblox.com/users/{user.id}/profile)", True),
                                  ("Method", label, True)] + ([("Problems", "; ".join(problems)[:500], False)] if problems else []),
@@ -332,7 +338,7 @@ class VerificationService:
         await self.p.publish("verification.completed", guild_id, user_id=int(discord_id), roblox=user.name, roblox_id=user.id,
                              method=method, actor_id=actor_id)
         s = await self.settings(guild_id)
-        if s.get("dm_on_verify") and method != "manual":
+        if s.get("dm_on_verify") and method in {"profile_code", "oauth"}:
             await self.p.actions.dm(int(discord_id), embed={
                 "title": "✅ Roblox account verified", "color": 0x2EA043,
                 "description": f"Your Discord account is now linked to **{user.name}** on Roblox.",
@@ -368,6 +374,85 @@ class VerificationService:
             "SUM(action = 'failed') AS failed FROM verification_history WHERE guild_id = ? AND at >= ?", (guild_id, since_iso))
         total = await self.db.fetchval("SELECT COUNT(*) FROM roblox_links WHERE guild_id = ?", (guild_id,), 0)
         return {"linked": total, "verified": row["verified"] or 0, "removed": row["removed"] or 0, "failed": row["failed"] or 0}
+
+    # ------------------------------------------------------------------ method 3: existing Bloxlink / RoVer links
+    async def external_key(self, guild_id: int, provider: str) -> Optional[str]:
+        if provider not in EXTERNAL or self.p.secrets is None:
+            return None
+        return await self.p.secrets.get(guild_id, f"verify_key:{provider}")
+
+    async def external_status(self, guild_id: int) -> dict:
+        out = {}
+        for prov in EXTERNAL:
+            out[prov] = bool(self.p.secrets is not None and await self.p.secrets.exists(guild_id, f"verify_key:{prov}"))
+        return out
+
+    async def set_external_key(self, guild_id: int, provider: str, key: Optional[str], actor_id: int) -> None:
+        if provider not in EXTERNAL:
+            raise ValidationError("Unknown service.")
+        if self.p.secrets is None:
+            raise ServiceError("Encrypted key storage is not available.")
+        if key:
+            key = key.strip()
+            if not 8 <= len(key) <= 400 or any(c.isspace() for c in key):
+                raise ValidationError("That doesn't look like an API key.")
+            await self.p.secrets.set(guild_id, f"verify_key:{provider}", key, actor_id)
+        else:
+            await self.p.secrets.delete(guild_id, f"verify_key:{provider}")
+        await self.p.audit.record(guild_id, actor_id, f"verification.{provider}_key", None, {"key": "***" if key else None})
+
+    async def _lookup_external(self, guild_id: int, discord_id: int, provider: str) -> Optional[int]:
+        key = await self.external_key(guild_id, provider)
+        if not key:
+            return None
+        if provider == "bloxlink":
+            return await self.roblox.bloxlink_lookup(guild_id, discord_id, key)
+        return await self.roblox.rover_lookup(guild_id, discord_id, key)
+
+    async def test_external(self, guild_id: int, provider: str, discord_id: int) -> dict:
+        """Checks the stored key by looking up the person pressing Test."""
+        if not await self.external_key(guild_id, provider):
+            raise ServiceError(f"No {EXTERNAL.get(provider, provider)} API key is saved.")
+        try:
+            rid = await self._lookup_external(guild_id, discord_id, provider)
+        except RobloxError as e:
+            raise ServiceError(str(e)) from e
+        if rid is None:
+            return {"ok": True, "message": f"The key works. You aren't linked in {EXTERNAL[provider]} for this server, so nothing was found."}
+        user = None
+        try:
+            user = await self.roblox.user(rid)
+        except RobloxError:
+            pass
+        return {"ok": True, "message": f"The key works. {EXTERNAL[provider]} has you linked to {user.name if user else f'Roblox user {rid}'}."}
+
+    async def try_external(self, guild_id: int, discord_id: int, *, quiet: bool = False) -> Optional[dict]:
+        """Verify instantly if Bloxlink or RoVer already has this member linked. Returns the result, or None
+        if no configured service knows them. Errors from one service never block the others."""
+        s = await self.settings(guild_id)
+        if not s["enabled"]:
+            return None
+        for prov in ("bloxlink", "rover"):
+            if not s.get(f"use_{prov}"):
+                continue
+            try:
+                rid = await self._lookup_external(guild_id, discord_id, prov)
+                if rid is None:
+                    continue
+                user = await self.roblox.user(rid)
+                if user is None:
+                    continue
+                await self._check_requirements(guild_id, user, discord_id)
+            except RobloxError as e:
+                if not quiet:
+                    await self.p.log(guild_id, "verification", f"{EXTERNAL[prov]} lookup failed", description=str(e)[:300])
+                continue
+            except ServiceError:
+                if quiet:
+                    return None
+                raise
+            return await self._link(guild_id, discord_id, user, method=prov, actor_id=discord_id)
+        return None
 
     async def expire_old(self) -> int:
         return await self.db.execute_rowcount("UPDATE verification_requests SET status = 'expired' WHERE status = 'pending' AND expires_at < ?",

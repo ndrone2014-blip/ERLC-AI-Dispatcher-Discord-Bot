@@ -569,7 +569,23 @@ class Api:
         return {"settings": {k: (_sid(val) if k.endswith("_id") else val) for k, val in s.items()},
                 "nickname_formats": NICKNAME_FORMATS, "stats": await v.stats(ctx.guild_id, utcnow().strftime("%Y-%m-%d")),
                 "pending": await v.list_pending(ctx.guild_id), "links": await v.list_links(ctx.guild_id, ctx.q("q"), ctx.qi("page")),
-                "oauth": {"configured": v.oauth_available(), "public_url": bool(self.bot.settings.dashboard_public_url)}}
+                "oauth": {"configured": v.oauth_available(), "public_url": bool(self.bot.settings.dashboard_public_url)},
+                "external": await v.external_status(ctx.guild_id)}
+
+    @route("POST", "/verification/keys/{provider}", "admin.config")
+    async def verification_key(self, ctx: Ctx):
+        """Write-only: Bloxlink / RoVer server API keys are encrypted and never sent back."""
+        await self.c.verification.set_external_key(ctx.guild_id, ctx.params["provider"], str(ctx.b("key") or ""), ctx.user_id)
+        return {"ok": True}
+
+    @route("DELETE", "/verification/keys/{provider}", "admin.config")
+    async def verification_key_delete(self, ctx: Ctx):
+        await self.c.verification.set_external_key(ctx.guild_id, ctx.params["provider"], None, ctx.user_id)
+        return {"ok": True}
+
+    @route("POST", "/verification/keys/{provider}/test", "admin.config")
+    async def verification_key_test(self, ctx: Ctx):
+        return await self.c.verification.test_external(ctx.guild_id, ctx.params["provider"], ctx.user_id)
 
     @route("PUT", "/verification/settings", "admin.config")
     async def verification_settings(self, ctx: Ctx):

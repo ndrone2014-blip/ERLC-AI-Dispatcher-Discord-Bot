@@ -1,5 +1,12 @@
 # Changelog
 
+## ⚡ No-bio verification (2026-11-27)
+- **Verify** now works like Bloxlink/Melonly: members already verified with **Bloxlink** or **RoVer** are verified in
+  one click (and automatically when they join). Add the server API keys on **Verification → Settings**, with a
+  **Test** button.
+- Otherwise members get a big **Sign in with Roblox** button. The profile code is only a backup and can be turned off.
+- Guide: **docs/ROBLOX_VERIFICATION.md**.
+
 ## 🌐 Dashboard on Netlify (2026-11-27)
 - The web dashboard can now be hosted on **Netlify** (`netlify.toml` + an edge function that forwards sign-in and data
   requests to the bot through a tunnel). One address for staff, same sign-in, permissions and live updates.

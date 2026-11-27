@@ -100,6 +100,48 @@ class RobloxAPI:
         items = (data or {}).get("data") or []
         return items[0].get("imageUrl") if items and items[0].get("state") == "Completed" else None
 
+    # ------------------------------------------------------------------ existing verification services
+    async def _linked_lookup(self, url: str, headers: dict) -> Optional[int]:
+        """Returns the Roblox user id another verification service has on file, or None."""
+        if self.session_factory is None:
+            raise RobloxError("Lookups are not available (no HTTP session).")
+        import aiohttp
+        try:
+            async with self.session_factory().get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=self.timeout)) as r:
+                if r.status in (401, 403):
+                    raise RobloxError("The API key was rejected. Check it on the dashboard (Verification → Settings).")
+                if r.status == 404:
+                    return None
+                if r.status == 429:
+                    raise RobloxError("The service is rate limiting requests. Try again in a minute.")
+                if r.status >= 400:
+                    raise RobloxError(f"The service returned HTTP {r.status}.")
+                data = await r.json(content_type=None)
+        except RobloxError:
+            raise
+        except Exception as e:
+            raise RobloxError(f"Could not reach the service ({type(e).__name__}).") from e
+        if not isinstance(data, dict):
+            return None
+        for key in ("robloxID", "robloxId", "roblox_id", "robloxUserId"):
+            v = data.get(key)
+            if v not in (None, "", 0, "0"):
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    async def bloxlink_lookup(self, guild_id: int, discord_id: int, api_key: str) -> Optional[int]:
+        # Bloxlink server ("guild") API key from blox.link → your server → API.
+        return await self._linked_lookup(f"https://api.blox.link/v4/public/guilds/{int(guild_id)}/discord-to-roblox/{int(discord_id)}",
+                                         {"Authorization": api_key})
+
+    async def rover_lookup(self, guild_id: int, discord_id: int, api_key: str) -> Optional[int]:
+        # RoVer server API key from rover.link → dashboard → your server → API.
+        return await self._linked_lookup(f"https://registry.rover.link/api/guilds/{int(guild_id)}/discord-to-roblox/{int(discord_id)}",
+                                         {"Authorization": f"Bearer {api_key}"})
+
     # ------------------------------------------------------------------ OAuth 2.0 (authorization code + PKCE)
     @staticmethod
     def new_pkce() -> tuple[str, str]:

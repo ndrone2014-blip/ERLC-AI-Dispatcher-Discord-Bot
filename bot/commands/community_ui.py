@@ -110,22 +110,40 @@ async def start_verify(interaction: discord.Interaction, username: Optional[str]
             view.add_item(VerifyCheckItem(interaction.user.id))
             view.add_item(discord.ui.Button(label="Open my Roblox profile", url=info["profile_url"]))
             return await reply(interaction, embed=verify_code_embed(info, look), view=view)
-        e = E.base("✅ Roblox Verification", look=look, colour=E.OK)
-        e.description = ((f"You are currently verified as **{link['roblox_username']}**. Verifying again replaces that link.\n\n"
-                          if link else "") + "Choose how you want to verify:")
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True, thinking=True)
+        # 1) Already verified with Bloxlink or RoVer? Then there's nothing to do.
+        res = await v.try_external(interaction.guild.id, interaction.user.id)
+        if res:
+            from community.verification import METHOD_LABEL
+            e = E.base("🎉 You're verified!", look=look, colour=E.OK,
+                       description=f"Linked to **{res['roblox']['name']}** on Roblox ({METHOD_LABEL.get(res['method'], res['method'])}). "
+                                   "Nothing else to do.")
+            if res["problems"]:
+                e.add_field(name="Heads-up for staff", value="\n".join(res["problems"])[:1000], inline=False)
+            return await reply(interaction, embed=e)
+        # 2) Sign in with Roblox (official login page), with the profile code as an optional fallback.
+        oauth_ready = s["allow_oauth"] and v.oauth_available() and bool(bot.settings.dashboard_public_url)
         view = discord.ui.View(timeout=600)
-        if s["allow_profile_code"]:
-            view.add_item(ProfileCodeButton())
-            e.add_field(name="🔑 Profile code", value="Put a short code in your Roblox profile's About section. Works for everyone.",
-                        inline=False)
-        if s["allow_oauth"] and v.oauth_available() and bot.settings.dashboard_public_url:
+        e = E.base("✅ Verify your Roblox account", look=look, colour=E.OK)
+        intro = f"You're currently linked to **{link['roblox_username']}**. Verifying again replaces that link.\n\n" if link else ""
+        if oauth_ready:
             req = await v.start_oauth(interaction.guild.id, interaction.user.id)
             view.add_item(discord.ui.Button(label="Sign in with Roblox", emoji="🔐",
                                             url=f"{bot.settings.dashboard_public_url}/verify/roblox/{req['token']}"))
-            e.add_field(name="🔐 Sign in with Roblox", value="Official Roblox sign-in page. Nothing to paste. "
-                                                            f"The link works once, for {req['expires_in_minutes']} minutes.", inline=False)
-        if not view.children:
-            return await reply(interaction, "No verification method is enabled on this server. Ask an administrator.", error=True)
+            e.description = (intro + "**1.** Press **Sign in with Roblox**.\n**2.** Log in on roblox.com and press **Confirm**.\n"
+                             "**3.** Done — come back to Discord.\n\n"
+                             f"Roblox never shares your password with us. This link works once, for {req['expires_in_minutes']} minutes.")
+            if s["allow_profile_code"]:
+                btn = ProfileCodeButton()
+                btn.label, btn.style = "Can't sign in? Use a code instead", discord.ButtonStyle.secondary
+                view.add_item(btn)
+        elif s["allow_profile_code"]:
+            view.add_item(ProfileCodeButton())
+            e.description = intro + "Press **Use a profile code** and enter your Roblox username. You'll get a short code to put in your " \
+                                    "Roblox profile's About section for a moment."
+        else:
+            return await reply(interaction, "No verification method is set up on this server yet. Ask an administrator.", error=True)
         await reply(interaction, embed=e, view=view)
 
     await guarded(interaction, go)

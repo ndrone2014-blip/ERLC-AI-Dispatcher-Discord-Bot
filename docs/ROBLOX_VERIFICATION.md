@@ -3,73 +3,75 @@
 Pulse Dispatch links a member's Discord account to their Roblox account. An account is **only** linked after a
 verification really succeeds. A member typing a name is never enough.
 
-There are two methods. You can offer one or both.
+Members never have to change their Roblox bio. When someone presses **Verify**, the bot tries these in order:
 
-| | 🔑 Profile code | 🔐 Sign in with Roblox (OAuth 2.0) |
-|---|---|---|
-| Setup | **None** | A Roblox OAuth app + a public HTTPS dashboard |
-| How it proves ownership | Member puts a random phrase in their Roblox profile's **About**; the bot reads the public profile | Member signs in on roblox.com; Roblox tells the bot which account signed in |
-| Members can use it | Everyone | Up to 10 people until Roblox approves your app (see below) |
+| Order | Method | What the member does | Setup |
+|---|---|---|---|
+| 1 | ⚡ **Instant (Bloxlink / RoVer)** | Nothing. If they're already verified with Bloxlink or RoVer, they're done in one click (and automatically when they join). | A free server API key, pasted on the dashboard |
+| 2 | 🔐 **Sign in with Roblox** | Press the button, sign in on roblox.com, press **Confirm**. Done. | A Roblox OAuth app (about 5 minutes) |
+| 3 | 🔑 Profile code (backup, can be turned off) | Paste a code in their Roblox About section | None |
 
 ---
 
-## 1. Basic setup (profile code, about 3 minutes)
+## 1. Basics (2 minutes)
 
 1. **Bot permissions.** In **Server Settings → Roles → Pulse Dispatch**, turn on **Manage Roles** and
-   **Manage Nicknames**, then drag the Pulse Dispatch role **above** the roles it should give
-   (e.g. *Verified*). Discord doesn't let a bot hand out roles above its own.
-2. **Roles.** In Discord:
-   ```
-   /verification roles verified_role:@Verified unverified_role:@Unverified
-   ```
-   Both are optional. The verified role is given on success; the unverified role is removed (and given back if a
-   link is removed). Or set them on the dashboard: **Verification → Settings**.
-3. **Panel.** Post a public verification panel with a **Verify** button in your verification channel:
-   ```
-   /verification panel channel:#verify
-   ```
-4. Optional, on **Verification → Settings**: nickname format (e.g. `Display (@username)`), minimum Roblox account
-   age, refuse banned accounts, DM on success.
-
-### What members do
-
-1. Press **Verify** on the panel (or run `/verify`) and pick **Use a profile code**, then type their Roblox username.
-2. Copy the code they're shown (six plain words, e.g. `pulse amber falcon river cobalt meadow lantern`).
-3. Open their Roblox profile → edit **About** → paste the code anywhere → **Save**.
-4. Back in Discord press **Done**. They're verified, get the role and nickname, and can remove the code.
-
-The code is valid for 20 minutes and can be checked 10 times. Plain words are used because Roblox's text filter
-often hides numbers in profiles.
+   **Manage Nicknames**, then drag the Pulse Dispatch role **above** the roles it should give (e.g. *Verified*).
+2. **Roles.** On the dashboard, **Verification → Settings**, pick the verified role (and an unverified role if you
+   use one). Or: `/verification roles verified_role:@Verified`
+3. **Panel.** `/verification panel` and pick the channel **from the list Discord shows** (or leave it out to post
+   in the current channel). Typing a channel name by hand gives "A channel id specified is invalid".
 
 ---
 
-## 2. Optional: "Sign in with Roblox" (OAuth 2.0)
+## 2. Sign in with Roblox (the main method)
 
-Requirements: the dashboard must be reachable at a public **HTTPS** address. Set up a tunnel and
-`DASHBOARD_PUBLIC_URL` first (see [DASHBOARD.md](DASHBOARD.md), section 3).
-
-1. Go to the Roblox Creator Dashboard → [OAuth 2.0 Apps](https://create.roblox.com/dashboard/credentials?activeTab=OAuthTab)
-   → **Create App**, give it a unique name, agree to the terms → **Create**.
-2. Copy the **Client ID** and **Secret** somewhere safe.
+1. Open the Roblox Creator Dashboard → [OAuth 2.0 Apps](https://create.roblox.com/dashboard/credentials?activeTab=OAuthTab)
+   → **Create App**, give it a name, agree to the terms → **Create**.
+2. Copy the **Client ID** and **Secret**.
 3. In the app's settings:
-   * **Permissions / scopes:** add **openid** and **profile** (nothing else is needed).
-   * **Redirect URL:** `https://YOUR-DASHBOARD-ADDRESS/auth/roblox/callback`
-     (exactly your `DASHBOARD_PUBLIC_URL` + `/auth/roblox/callback`).
+   * **Scopes:** **openid** and **profile**.
+   * **Redirect URL:** `https://YOUR-SITE.netlify.app/auth/roblox/callback`
+     (your `DASHBOARD_PUBLIC_URL` + `/auth/roblox/callback`).
 4. In `.env`:
    ```
    ROBLOX_CLIENT_ID=...
    ROBLOX_CLIENT_SECRET=...
    ```
-5. Restart the bot. `/verify` now also shows a **Sign in with Roblox** button (each link works once, for 10 minutes).
+5. Restart the bot (keep ngrok running). **Verify** now shows a big **Sign in with Roblox** button.
 
-**Important: Roblox's review.** New OAuth apps start in *private mode*, limited to **10 unique users**, which is
-meant for testing. To let your whole community use it, submit the app for review in the Creator Dashboard. Roblox
-asks for a demo video of up to 1 minute showing the full sign-in flow, plus Privacy Policy and Terms of Service
-URLs (HTTPS). Until it's approved, keep profile-code verification switched on so everyone can verify.
+**Roblox's review.** New OAuth apps start in *private mode*, limited to **10 people**. To open it to everyone,
+submit the app for review in the Creator Dashboard (Roblox asks for a short demo video and Privacy Policy / Terms
+links). Until then, members already on Bloxlink or RoVer still verify instantly (section 3), and you can leave the
+profile code on as a backup.
 
 ---
 
-## 3. Staff tools
+## 3. Instant verification with Bloxlink or RoVer
+
+If your members already verified with Bloxlink or RoVer anywhere, Pulse can ask those services who they are, so
+they're verified the moment they press **Verify** or join the server. You need one or both keys:
+
+* **Bloxlink:** [blox.link/dashboard](https://blox.link/dashboard) → your server → **Developer / API keys** →
+  create a **Server API key**. Bloxlink must be in your server.
+* **RoVer:** [rover.link](https://rover.link) dashboard → your server → **API keys** → create a key. RoVer must be in
+  your server.
+
+Paste the key on the Pulse dashboard: **Verification → Settings → Instant verification**, press **Save**, then
+**Test**. Test looks *you* up, so it says whether the key works. Keys are stored encrypted and never shown again.
+
+Toggles on the same page: use Bloxlink, use RoVer, verify automatically when someone joins.
+
+---
+
+## 4. Turning off the profile code
+
+On **Verification → Settings**, untick **Profile code**. Members then only see Sign in with Roblox (and instant
+verification). Keep it on while your OAuth app is still limited to 10 people if not everyone uses Bloxlink/RoVer.
+
+---
+
+## 5. Staff tools
 
 | Command | What it does |
 |---|---|
@@ -88,14 +90,14 @@ Verified Roblox usernames are also written to the member's dispatch officer reco
 
 ---
 
-## 4. Automations
+## 6. Automations
 
 Use the trigger **"A member verifies their Roblox account"** on the **Automation** page to give extra roles, send a
 DM, post in a channel and so on. Placeholders: `{user}`, `{roblox}`, `{server}`.
 
 ---
 
-## 5. Troubleshooting
+## 7. Troubleshooting
 
 | Problem | Fix |
 |---|---|

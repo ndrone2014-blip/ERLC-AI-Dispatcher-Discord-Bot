@@ -419,7 +419,7 @@ page("verification", "Verification", async (el, args) => {
       const load = async () => { const v = await api(`/verification?${new URLSearchParams(q)}`); const L = v.links;
         clear(out, table([{ label: "Member", render: (r) => who(r.discord_id, r.display_name || r.username, r.avatar_url) },
           { label: "Roblox", render: (r) => h("a", { href: `https://www.roblox.com/users/${r.roblox_id}/profile`, target: "_blank", rel: "noopener noreferrer" }, r.roblox_username) },
-          { label: "Method", render: (r) => ({ profile_code: "Profile code", oauth: "Roblox sign-in", manual: "Staff link" }[r.method]) }, { label: "Verified", render: (r) => when(r.verified_at) },
+          { label: "Method", render: (r) => ({ profile_code: "Profile code", oauth: "Roblox sign-in", manual: "Staff link", bloxlink: "From Bloxlink", rover: "From RoVer" }[r.method] || r.method) }, { label: "Verified", render: (r) => when(r.verified_at) },
           { label: "", cls: "actions", render: (r) => h("span", null, h("button", { class: "btn sm", onclick: async () => { const x = await act(() => api(`/verification/${r.discord_id}/sync`, { method: "POST" })); toast(x.problems.length ? x.problems.join(" ") : "Roles and nickname updated.", !!x.problems.length); } }, "Sync roles"),
             " ", h("button", { class: "btn sm danger", onclick: async () => { if (!(await confirmDialog("Remove link?", `${r.roblox_username} will be unlinked.`, "Remove"))) return; await act(() => api(`/verification/${r.discord_id}`, { method: "DELETE" }), "Link removed."); load(); } }, "Remove")) }],
           L.items, { empty: emptyState("No verified members yet", "Members verify with /verify, or post a panel with /verification panel.") }), pager(L, (p) => { q.page = p; load(); })); };
@@ -436,17 +436,38 @@ page("verification", "Verification", async (el, args) => {
       clear(body, table([{ label: "When", render: (r) => when(r.at) }, { label: "Action", key: "action" }, { label: "Member", render: (r) => who(r.discord_id) },
         { label: "Roblox", key: "roblox_username" }, { label: "Method", key: "method" }, { label: "Detail", key: "detail" }], hst.items));
     } else {
-      const note = !d.oauth.configured ? "Roblox sign-in (OAuth) needs ROBLOX_CLIENT_ID and ROBLOX_CLIENT_SECRET in .env — see docs/ROBLOX_VERIFICATION.md. Profile-code verification works without any setup."
-        : !d.oauth.public_url ? "Roblox sign-in is configured but needs DASHBOARD_PUBLIC_URL so the Roblox page can send members back." : null;
-      clear(body, can("admin.config") ? settingsPanel("Verification settings", [
-        { key: "enabled", label: "Verification enabled", type: "check" },
-        { key: "allow_profile_code", label: "Allow profile-code verification", type: "check", help: "Member puts a short code in their Roblox About section." },
-        { key: "allow_oauth", label: "Allow 'Sign in with Roblox'", type: "check", help: "Official Roblox sign-in page (needs setup)." },
-        { key: "verified_role_id", label: "Role to give after verifying", type: "role" }, { key: "unverified_role_id", label: "Role to remove after verifying", type: "role" },
-        { key: "nickname_format", label: "Nickname after verifying", type: "select", options: d.nickname_formats },
-        { key: "min_account_age_days", label: "Minimum Roblox account age (days)", type: "number", min: 0, max: 3650, help: "0 = no minimum." },
-        { key: "block_banned_accounts", label: "Refuse banned Roblox accounts", type: "check" }, { key: "dm_on_verify", label: "DM members when they're verified", type: "check" }],
-        s, (v) => api("/verification/settings", { method: "PUT", body: v }), { note }) : emptyState("Administrators change these settings", null));
+      if (!can("admin.config")) { clear(body, emptyState("Administrators change these settings", null)); return; }
+      const v2 = await api("/verification");
+      const keyRow = (prov, label, where) => {
+        const set = v2.external[prov];
+        const inp = h("input", { type: "password", autocomplete: "off", placeholder: set ? "Key saved — paste a new one to replace it" : `Paste your ${label} server API key` });
+        return h("div", { style: "margin-bottom:16px" }, h("div", { class: "row", style: "margin-bottom:6px" }, h("b", null, label), set ? pill("Key saved", "ok") : pill("Not set", "off")),
+          h("p", { class: "muted small", style: "margin:0 0 6px" }, where),
+          h("div", { class: "row" }, h("div", { class: "fill" }, inp),
+            h("button", { class: "btn primary", onclick: async () => { if (!inp.value.trim()) return toast("Paste the key first.", true);
+              await act(() => api(`/verification/keys/${prov}`, { method: "POST", body: { key: inp.value.trim() } }), `${label} key saved.`); draw(); } }, "Save"),
+            set ? h("button", { class: "btn", onclick: async () => { const r = await act(() => api(`/verification/keys/${prov}/test`, { method: "POST" })); toast(r.message); } }, "Test") : null,
+            set ? h("button", { class: "btn danger", onclick: async () => { if (!(await confirmDialog(`Remove the ${label} key?`, "Members will no longer be verified through it.", "Remove"))) return;
+              await act(() => api(`/verification/keys/${prov}`, { method: "DELETE" }), "Key removed."); draw(); } }, "Remove") : null));
+      };
+      const oauthNote = !d.oauth.configured ? "Sign in with Roblox needs a free Roblox OAuth app: add ROBLOX_CLIENT_ID and ROBLOX_CLIENT_SECRET to .env (docs/ROBLOX_VERIFICATION.md)."
+        : !d.oauth.public_url ? "Sign in with Roblox is configured but needs DASHBOARD_PUBLIC_URL." : null;
+      clear(body, h("div", { class: "panels" },
+        h("div", { class: "span-6" }, panel("Instant verification (Bloxlink / RoVer)", h("div", null,
+          h("p", { class: "muted" }, "Members already verified with Bloxlink or RoVer are linked instantly when they press Verify, or as soon as they join. Keys are stored encrypted and can't be viewed again."),
+          keyRow("bloxlink", "Bloxlink", "blox.link → Dashboard → your server → API Keys → create a server key."),
+          keyRow("rover", "RoVer", "rover.link → Dashboard → your server → API → create an API key.")))),
+        h("div", { class: "span-6" }, settingsPanel("Verification settings", [
+          { key: "enabled", label: "Verification enabled", type: "check" },
+          { key: "use_bloxlink", label: "Check Bloxlink first", type: "check" }, { key: "use_rover", label: "Check RoVer first", type: "check" },
+          { key: "auto_verify_on_join", label: "Verify new members automatically if Bloxlink/RoVer knows them", type: "check" },
+          { key: "allow_oauth", label: "Allow 'Sign in with Roblox'", type: "check", help: "Official Roblox login page — the main method." },
+          { key: "allow_profile_code", label: "Allow profile-code verification (fallback)", type: "check", help: "Member puts a short code in their Roblox About section. Turn off to hide it." },
+          { key: "verified_role_id", label: "Role to give after verifying", type: "role" }, { key: "unverified_role_id", label: "Role to remove after verifying", type: "role" },
+          { key: "nickname_format", label: "Nickname after verifying", type: "select", options: d.nickname_formats },
+          { key: "min_account_age_days", label: "Minimum Roblox account age (days)", type: "number", min: 0, max: 3650, help: "0 = no minimum." },
+          { key: "block_banned_accounts", label: "Refuse banned Roblox accounts", type: "check" }, { key: "dm_on_verify", label: "DM members when they're verified", type: "check" }],
+          v2.settings, (v) => api("/verification/settings", { method: "PUT", body: v }), { note: oauthNote }))));
     }
   };
   const tabRow = h("div");

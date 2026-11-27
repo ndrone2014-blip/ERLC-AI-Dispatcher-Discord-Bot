@@ -26,13 +26,14 @@ LogWriter = Callable[..., Awaitable[None]]
 
 class CommunityPlatform:
     def __init__(self, db: Database, bus: EventBus, audit: AuditLog, permissions: PermissionManager, *,
-                 actions: Optional[DiscordActions] = None, roblox=None, ai=None, dispatch=None):
+                 actions: Optional[DiscordActions] = None, roblox=None, ai=None, dispatch=None, secrets=None):
         self.db = db
         self.bus = bus
         self.audit = audit
         self.permissions = permissions
         self.actions = actions or DiscordActions()
         self.ai = ai
+        self.secrets = secrets    # SecretStore (encrypted per-server keys, e.g. Bloxlink / RoVer API keys)
         self.dispatch = dispatch  # DispatchCore (optional; used by the assistant and analytics)
         self._log_writer: Optional[LogWriter] = None
 

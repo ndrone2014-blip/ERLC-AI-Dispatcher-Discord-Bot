@@ -156,7 +156,7 @@ class DispatchBot(commands.Bot):
         # v4.0 Command Center: community platform shared by slash commands and the web dashboard.
         self.roblox = RobloxAPI(self.session, client_id=s.roblox_client_id, client_secret=s.roblox_client_secret)
         self.community = CommunityPlatform(self.db, self.bus, self.audit, self.permissions, actions=BotActions(self),
-                                           roblox=self.roblox, ai=self.ai, dispatch=self.core)
+                                           roblox=self.roblox, ai=self.ai, dispatch=self.core, secrets=self.secrets)
         self.community.set_log_writer(self.logbook.write)
         self._wire_notifications()
         self.sync = SyncManager(self.db, self.bus, self.secrets, self.session, lambda: self.core.intake,
@@ -253,6 +253,13 @@ class DispatchBot(commands.Bot):
             await self.community.members.on_join(member.guild.id, member_dict(member))
         except Exception:
             log.exception("Member join handling failed")
+        if not member.bot:
+            try:  # already linked in Bloxlink / RoVer? verify them right away
+                s = await self.community.verification.settings(member.guild.id)
+                if s["auto_verify_on_join"]:
+                    await self.community.verification.try_external(member.guild.id, member.id, quiet=True)
+            except Exception:
+                log.debug("Automatic verification on join failed", exc_info=True)
 
     async def on_member_remove(self, member: discord.Member) -> None:
         try:
