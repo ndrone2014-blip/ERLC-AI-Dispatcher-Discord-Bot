@@ -53,9 +53,26 @@ HELP_SECTIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
         ("/ai-model", "Pick a model per provider"),
         ("/ai-failover", "Automatic failover on/off and the try order"),
     ]),
+    "community": ("👥 Community", [
+        ("/verify · /verification lookup|link|unlink|sync|roles|panel|history|status", "Roblox account verification"),
+        ("/profile · /member info|note", "Member profiles and staff notes"),
+        ("/apply · /application list|review|note|respond|mine|preset|toggle", "Applications and reviews"),
+        ("/session create|start|end|list|join", "Community sessions with reminders"),
+        ("/announcement", "Send text or a saved embed template"),
+        ("/ask", "Ask Pulse: active calls, units, shifts, sessions, verification…"),
+    ]),
+    "staff": ("🧑‍✈️ Staff & Moderation", [
+        ("/staff add|promote|demote|remove|info|list|note|leave", "Staff team management"),
+        ("/shift start|end|note|status|active|leaderboard", "Shifts and on-duty tracking"),
+        ("/warn · /timeout · /kick · /ban · /unban", "Moderation actions (numbered cases)"),
+        ("/history · /case view|revoke|edit", "Moderation history and cases"),
+        ("/report-member", "Privately report a member to moderators"),
+    ]),
     "info": ("ℹ️ Information", [
         ("/help", "This menu"), ("/about", "About Pulse Dispatch"), ("/statistics", "Dispatch statistics"),
         ("/ping", "Latency check"), ("/version", "Version and release notes"),
+        ("/server-info · /bot-info", "Server overview and bot status"),
+        ("/dashboard web", "Link to the web dashboard"),
         ("/voice join|leave|listen|mute|test|diagnose", "Dispatcher voice"),
     ]),
 }

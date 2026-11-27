@@ -27,30 +27,19 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-LOG_CATEGORIES: dict[str, tuple[str, str]] = {
-    # key: (label, icon)
-    "calls": ("New 911 calls", "🚨"),
-    "incidents": ("New incidents & live incident cards", "📁"),
-    "ai_responses": ("AI dispatch responses", "🧠"),
-    "assignments": ("Unit assignments", "🚓"),
-    "unit_status": ("Unit status changes", "🔁"),
-    "backup": ("Backup requests", "🆘"),
-    "priority": ("Priority changes", "🎚️"),
-    "bolos": ("BOLO announcements", "📢"),
-    "closures": ("Incident closures", "🔒"),
-    "failed": ("Failed dispatch requests", "⚠️"),
-    "admin": ("Administrative changes", "🛠️"),
-    "ai_failures": ("AI provider failures", "🔌"),
-    "radio": ("Radio traffic (announcements & voice)", "📻"),
-    "erlc": ("ER:LC connection changes", "🎮"),
-}
-DEFAULT_ENABLED = {k: True for k in LOG_CATEGORIES}
+from core.log_categories import DEFAULT_ENABLED, LOG_CATEGORIES  # noqa: E402  (re-exported)
 CATEGORY_COLOUR = {"calls": E.DANGER, "incidents": E.BRAND, "ai_responses": E.INFO, "assignments": E.OK,
                    "unit_status": E.MUTED, "backup": E.DANGER, "priority": E.WARN, "bolos": E.WARN, "closures": E.MUTED,
-                   "failed": E.WARN, "admin": E.INFO, "ai_failures": E.WARN, "radio": E.MUTED, "erlc": E.INFO}
+                   "failed": E.WARN, "admin": E.INFO, "ai_failures": E.WARN, "radio": E.MUTED, "erlc": E.INFO,
+                   "members": E.BRAND, "roles": E.MUTED, "verification": E.OK, "moderation": E.WARN, "applications": E.INFO,
+                   "staff": E.BRAND, "shifts": E.MUTED, "sessions": E.OK, "automation": E.INFO, "commands": E.MUTED,
+                   "security": E.DANGER, "dashboard": E.MUTED, "errors": E.DANGER}
 
 # Audit actions already covered by a more specific category (not repeated as "admin").
-_NON_ADMIN_PREFIXES = ("incident.", "unit.", "bolo.", "report.", "test.", "notice.", "officer.", "broadcast")
+_NON_ADMIN_PREFIXES = ("incident.", "unit.", "bolo.", "report.", "test.", "notice.", "officer.", "broadcast",
+                       # v4.0: these have their own categories
+                       "verification.", "mod.", "staff.", "application.status", "member.", "session.", "shift.",
+                       "announcement.", "dashboard.login", "dashboard.logout")
 
 
 class Logbook:

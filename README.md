@@ -1,23 +1,22 @@
 # 🚨 Pulse Dispatch | ERLC
 
-An intelligent, realistic dispatch operation / Computer-Aided Dispatch system for **Emergency Response: Liberty County**
-roleplay communities that runs **entirely inside Discord** — no website, no web dashboard.
+An intelligent, realistic dispatch operation and **ER:LC community management platform** for **Emergency Response:
+Liberty County** roleplay communities: a Discord bot **plus a web dashboard it serves itself**.
 
-> 🦃 **Thanksgiving Update (v3.0.0)** — faster dispatch, natural-language understanding, 15 AI providers with
-> automatic failover, professional embeds & logging, optional dashboards, expanded units and 30+ new commands.
-> See **[CHANGELOG.md](CHANGELOG.md)**.
+> 🖥️ **Command Center Update (v4.0.0)** — web dashboard, Roblox verification, staff & shifts, sessions, applications,
+> moderation cases, automations, notifications, embed builder and the Pulse Assistant. See **[CHANGELOG.md](CHANGELOG.md)**,
+> **[docs/DASHBOARD.md](docs/DASHBOARD.md)** and **[docs/ROBLOX_VERIFICATION.md](docs/ROBLOX_VERIFICATION.md)**.
 
 * Detects **in-game 911 calls automatically** through the official ER:LC API and announces them **out loud** in a Discord
   voice channel with a radio-style dispatcher voice.
-* Assesses every call (Google Gemini free tier, with automatic fallback to other providers or deterministic rules) and
-  recommends **priority, unit count and departments** — supervisors approve or override.
-* Reassesses when new information arrives and announces significant escalations.
-* **Understands plain language** in any word order, with typos, slang, abbreviations and 10-codes:
-  *“We have a vehicle crash at the bank”*, *“Vehicle accident, bank location”* and *“Need EMS at the bank for a crash”*
-  all open (or join) the same incident. Missing details are asked for. Works with **no AI at all**.
-* Officers manage themselves by **voice** ("Dispatch, I'm 10-8", "attach me to incident 104"), text or commands.
-* **Optional** dashboards (11 panels), professional logging (14 event types), police reports, BOLOs, permissions,
-  statistics, backups — every server configured independently.
+* Assesses every call (free AI providers with automatic fallback, or deterministic rules) and recommends
+  **priority, unit count and departments** — supervisors approve or override.
+* **Understands plain language** in any word order, with typos, slang, abbreviations and 10-codes. Works with **no AI at all**.
+* Officers manage themselves by **voice** ("Dispatch, I'm 10-8"), text or commands.
+* **Web dashboard**: live Dispatch Center, analytics, members, staff, moderation, applications, automations, logs and every
+  setting — sign in with Discord, role-based access, mobile friendly.
+* **Roblox verification** (no setup needed), **staff & shift** tracking, **sessions**, **applications**, **moderation cases**,
+  **automations**, professional **logging** (27 categories) — every server configured independently.
 
 > ⚠️ Roleplay system only. It is **not** a real emergency service.
 
@@ -43,7 +42,9 @@ the local voice engine (onnxruntime: *"The filename or extension is too long"*).
 2. On the Bot page enable the privileged intents **Server Members Intent** and **Message Content Intent**
    (needed for the plain-language `#dispatch` channel).
 3. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`; permissions: *Manage Channels, View Channels,
-   Send Messages, Embed Links, Attach Files, Read Message History, Manage Messages, Connect, Speak, Use Voice Activity*.
+   Send Messages, Embed Links, Attach Files, Read Message History, Manage Messages, Connect, Speak, Use Voice Activity*,
+   and for v4.0 features *Manage Roles, Manage Nicknames, Moderate Members, Kick Members, Ban Members*.
+   (Already invited? Turn these on for the bot's role in **Server Settings → Roles** and drag its role above the roles it manages.)
 4. Open the generated URL and add the bot to your server.
 
 ## 3. Install
@@ -102,6 +103,18 @@ and the dashboard picker).
 
 Deleted a panel by accident? `/setup repair`.
 
+## 6½. Web dashboard & Roblox verification (v4.0)
+
+**Dashboard (5 minutes):** Developer Portal → OAuth2 → *Reset Secret* → put it in `.env` as `DISCORD_CLIENT_SECRET`, add the
+redirect `http://localhost:8080/auth/callback`, restart, open **http://localhost:8080**. To let staff use it from anywhere,
+follow [docs/DASHBOARD.md](docs/DASHBOARD.md) (free Cloudflare Tunnel or ngrok).
+
+**Roblox verification (no setup):** `/verification roles` → `/verification panel channel:#verify`. Members press **Verify**.
+Optional official "Sign in with Roblox": [docs/ROBLOX_VERIFICATION.md](docs/ROBLOX_VERIFICATION.md).
+
+**Map roles to permission groups** (Management, Supervisor, Moderator, Dispatcher, Department Leader, Staff, Officer, Fire/EMS)
+with `/permissions map` or on the dashboard (Settings → Permissions). The dashboard and all new commands follow them.
+
 ## 7. How the automatic 911 pipeline works
 
 ```
@@ -149,8 +162,10 @@ See **[docs/VOICE.md](docs/VOICE.md)** for an important note about Discord's end
 | **Administration** | `/setup-guide` · `/setup run\|repair\|panel` · `/settings view\|response-style\|agency-name\|dispatch-channel\|follow-up-questions\|duplicates\|approval-threshold\|embed\|callsign-format\|category-add\|category-remove\|erlc-key` · `/dashboard status\|enable\|disable\|preset` · `/logs settings\|channel\|create\|toggle\|route\|view` · `/departments list\|add\|remove\|status-add\|status-remove` · `/permissions view\|map\|set` · `/reset-settings` |
 | **AI** | `/ai-status` · `/ai-provider list\|guide\|key\|remove-key\|prefer\|mode\|enable` · `/ai-test` · `/ai-model` · `/ai-failover` · `/ai status\|test\|primary` |
 | **Information** | `/help` · `/about` · `/statistics` · `/stats` · `/ping` · `/version` · `/erlc` · `/voice join\|leave\|listen\|mute\|test\|diagnose` |
+| **Community** (v4.0) | `/verify` · `/verification lookup\|link\|unlink\|sync\|roles\|panel\|history\|status` · `/profile` · `/member info\|note` · `/apply` · `/application list\|review\|note\|respond\|mine\|preset\|toggle` · `/session create\|start\|end\|list\|join` · `/announcement` · `/ask` · `/server-info` · `/bot-info` · `/dashboard web` |
+| **Staff & moderation** (v4.0) | `/staff add\|promote\|demote\|remove\|info\|list\|note\|leave` · `/shift start\|end\|note\|status\|active\|leaderboard` · `/warn` · `/timeout` · `/kick` · `/ban` · `/unban` · `/history` · `/case view\|revoke\|edit` · `/report-member` |
 
-Destructive actions (`/incident-close`, `/incident-close-all`, `/reset-settings`) ask for confirmation. Permissions are enforced on every
+Destructive actions (`/incident-close`, `/incident-close-all`, `/reset-settings`, `/kick`, `/ban`, `/staff remove`) ask for confirmation. Permissions are enforced on every
 command and button; regular members can never change administrator settings.
 
 ## 10. AI providers (free-first)
@@ -234,8 +249,11 @@ ai/         provider manager (modes, failover, cache), provider catalogue, Gemin
 voice/      connection, receive sink (DAVE), speech-to-text, text-to-speech, radio processing, queue player, voice commands
 database/   SQLite connection, migrations, backups
 security/   permissions, validation, audit log, encrypted secrets
-core/       event bus, logging (secret redaction), version
-docs/       implementation plan & checklist, voice notes
+community/  v4.0 platform services (no discord.py): members, Roblox verification, staff & shifts, sessions,
+            applications, moderation, automation, notifications, embeds, analytics, Pulse Assistant
+web/        v4.0 web dashboard: aiohttp server (auth, security), JSON API, static app (no build step)
+core/       event bus, logging (secret redaction), version, log categories, branding
+docs/       dashboard & Roblox verification guides, implementation plan & checklist, voice notes
 tests/
 ```
 

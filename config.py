@@ -96,6 +96,22 @@ class Settings:
     # Security
     secret_key: str = field(default_factory=lambda: _str("SECRET_KEY"))
 
+    # Web dashboard (v4.0). Served by the bot itself; see docs/DASHBOARD.md.
+    dashboard_enabled: bool = field(default_factory=lambda: _bool("DASHBOARD_ENABLED", True))
+    dashboard_host: str = field(default_factory=lambda: _str("DASHBOARD_HOST", "127.0.0.1"))
+    dashboard_port: int = field(default_factory=lambda: _int("DASHBOARD_PORT", 8080))
+    # The address people open in their browser. Leave empty for http://localhost:<port> (this PC only).
+    dashboard_public_url: str = field(default_factory=lambda: _str("DASHBOARD_PUBLIC_URL").rstrip("/"))
+    # Set to true only when the dashboard is behind a tunnel/reverse proxy (Cloudflare Tunnel, ngrok...).
+    dashboard_trust_proxy: bool = field(default_factory=lambda: _bool("DASHBOARD_TRUST_PROXY", False))
+    # Discord OAuth2 (Developer Portal -> OAuth2). The client ID defaults to the bot's own application ID.
+    discord_client_id: str = field(default_factory=lambda: _str("DISCORD_CLIENT_ID"))
+    discord_client_secret: str = field(default_factory=lambda: _str("DISCORD_CLIENT_SECRET"))
+
+    # Roblox OAuth 2.0 (optional, create.roblox.com -> OAuth 2.0 apps). Profile-code verification needs nothing.
+    roblox_client_id: str = field(default_factory=lambda: _str("ROBLOX_CLIENT_ID"))
+    roblox_client_secret: str = field(default_factory=lambda: _str("ROBLOX_CLIENT_SECRET"))
+
     # Storage
     data_dir: Path = field(default_factory=lambda: _path("DATA_DIR", BASE_DIR / "data"))
     database_path: Path = field(default_factory=lambda: _path("DATABASE_PATH", BASE_DIR / "data" / "dispatch.db"))
@@ -113,6 +129,10 @@ class Settings:
 
     # Testing
     test_mode: bool = field(default_factory=lambda: _bool("TEST_MODE", False))
+
+    @property
+    def dashboard_url(self) -> str:
+        return self.dashboard_public_url or f"http://localhost:{self.dashboard_port}"
 
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.backup_dir, self.log_dir, self.piper_voice_dir, self.database_path.parent):

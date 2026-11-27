@@ -11,21 +11,30 @@ from typing import Iterable, Optional
 
 from database.connection import Database
 
-GROUPS = ["owner", "admin", "supervisor", "dispatcher", "officer", "fire_ems", "citizen"]
+GROUPS = ["owner", "admin", "management", "supervisor", "moderator", "dispatcher", "department_leader", "staff",
+          "officer", "fire_ems", "citizen"]
 GROUP_LABEL = {
     "owner": "Server Owner",
     "admin": "Administrator",
+    "management": "Management",
     "supervisor": "Dispatch Supervisor",
+    "moderator": "Moderator",
     "dispatcher": "Dispatcher",
+    "department_leader": "Department Leader",
+    "staff": "Staff Member",
     "officer": "Officer",
     "fire_ems": "Fire/EMS Personnel",
-    "citizen": "Citizen",
+    "citizen": "Regular Member",
 }
 
-STAFF = {"owner", "admin", "supervisor", "dispatcher"}
-RESPONDERS = STAFF | {"officer", "fire_ems"}
-SUPERVISORS = {"owner", "admin", "supervisor"}
 ADMINS = {"owner", "admin"}
+MANAGEMENT = ADMINS | {"management"}
+SUPERVISORS = MANAGEMENT | {"supervisor"}
+STAFF = SUPERVISORS | {"dispatcher"}
+RESPONDERS = STAFF | {"officer", "fire_ems"}
+MODERATORS = MANAGEMENT | {"moderator"}
+# Everyone on the community's staff team (any group that may open the web dashboard).
+TEAM = STAFF | {"moderator", "department_leader", "staff"}
 EVERYONE = set(GROUPS)
 
 DEFAULT_PERMISSIONS: dict[str, set[str]] = {
@@ -65,6 +74,39 @@ DEFAULT_PERMISSIONS: dict[str, set[str]] = {
     "admin.permissions": {"owner", "admin"},
     "admin.backup": ADMINS,
     "admin.test": ADMINS | {"supervisor"},
+    # ---- v4.0 Command Center ----------------------------------------------------------
+    "dashboard.view": TEAM | RESPONDERS,
+    "analytics.view": TEAM,
+    "logs.view": SUPERVISORS | {"moderator"},
+    "logs.export": MANAGEMENT,
+    "members.view": TEAM,
+    "members.notes": MODERATORS | {"supervisor", "department_leader"},
+    "verification.self": EVERYONE,
+    "verification.manage": MODERATORS,
+    "staff.view": TEAM,
+    "staff.manage": MANAGEMENT,
+    "staff.notes": MANAGEMENT | {"department_leader"},
+    "staff.leave_review": MANAGEMENT | {"department_leader"},
+    "shift.self": TEAM | RESPONDERS,
+    "shift.manage": SUPERVISORS | {"department_leader"},
+    "session.view": EVERYONE,
+    "session.manage": SUPERVISORS | {"department_leader", "moderator"},
+    "application.submit": EVERYONE,
+    "application.review": MANAGEMENT | {"department_leader"},
+    "application.manage": MANAGEMENT,
+    "mod.view": MODERATORS | {"supervisor"},
+    "mod.warn": MODERATORS | {"supervisor"},
+    "mod.timeout": MODERATORS,
+    "mod.kick": MODERATORS,
+    "mod.ban": MANAGEMENT | {"moderator"},
+    "mod.report": EVERYONE,
+    "mod.reports_manage": MODERATORS,
+    "automation.manage": ADMINS,
+    "embeds.manage": MANAGEMENT,
+    "announcement.send": MANAGEMENT,
+    "notifications.view": TEAM,
+    "assistant.use": EVERYONE,
+    "dispatch.dashboard": STAFF,
 }
 
 PERMISSION_DESCRIPTIONS = {
@@ -83,6 +125,33 @@ PERMISSION_DESCRIPTIONS = {
     "admin.config": "Configure the system",
     "admin.erlc": "Configure the ER:LC API",
     "admin.ai": "Configure AI providers",
+    "dashboard.view": "Open the web dashboard",
+    "analytics.view": "View analytics",
+    "logs.view": "View logs",
+    "logs.export": "Export logs and reports",
+    "members.view": "View the member directory",
+    "members.notes": "Add member notes",
+    "verification.manage": "Manage Roblox verification",
+    "staff.view": "View the staff directory",
+    "staff.manage": "Hire, promote, demote and remove staff",
+    "staff.notes": "Read/write confidential staff notes",
+    "staff.leave_review": "Approve leave requests",
+    "shift.self": "Start and end own shifts",
+    "shift.manage": "Manage other members' shifts",
+    "session.manage": "Create and run sessions",
+    "application.review": "Review applications",
+    "application.manage": "Build application forms",
+    "mod.view": "View moderation history",
+    "mod.warn": "Warn members",
+    "mod.timeout": "Time out members",
+    "mod.kick": "Kick members",
+    "mod.ban": "Ban and unban members",
+    "mod.reports_manage": "Handle member reports",
+    "automation.manage": "Manage automations and schedules",
+    "embeds.manage": "Manage embed templates and welcome messages",
+    "announcement.send": "Send announcements",
+    "notifications.view": "See dashboard notifications",
+    "dispatch.dashboard": "Use the web Dispatch Center",
 }
 
 
@@ -146,6 +215,19 @@ class PermissionManager:
             if actor.role_ids & set(roles):
                 groups.add(group)
         return groups
+
+    async def all_for(self, guild_id: int, actor: Actor) -> set[str]:
+        """Every permission this actor holds (used to build the dashboard navigation)."""
+        groups = await self.groups_for(guild_id, actor)
+        if "owner" in groups:
+            return set(DEFAULT_PERMISSIONS)
+        ov = await self.overrides(guild_id)
+        out = set()
+        for perm, default in DEFAULT_PERMISSIONS.items():
+            allowed = set(ov[perm]) if perm in ov else set(default)
+            if groups & allowed or (perm == "admin.permissions" and "admin" in groups):
+                out.add(perm)
+        return out
 
     async def allowed_groups(self, guild_id: int, permission: str) -> set[str]:
         ov = await self.overrides(guild_id)

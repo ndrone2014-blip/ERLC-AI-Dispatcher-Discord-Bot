@@ -24,6 +24,7 @@ async def bot(tmp_path, monkeypatch):
     s.webhook_enabled = False
     s.gemini_api_key = ""
     s.erlc_server_key = ""
+    s.dashboard_enabled = False  # v4.0: don't bind the web dashboard port during tests
     b = DispatchBot(s)
 
     async def no_sync(*a, **k):
@@ -195,7 +196,9 @@ async def test_slash_commands_valid(bot):
         assert 1 <= len(payload.get("description", "x")) <= 100
         names.add(payload["name"])
     for required in ("setup", "911", "unit", "status", "attach", "detach", "calls", "incident", "backup", "bolo", "dispatch",
-                     "voice", "ai", "stats"):
+                     "voice", "ai", "stats",
+                     # v4.0 Command Center
+                     "verify", "verification", "staff", "shift", "session", "apply", "application", "warn", "ban", "ask"):
         assert required in names, required
 
 

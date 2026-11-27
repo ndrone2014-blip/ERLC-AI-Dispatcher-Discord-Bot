@@ -24,7 +24,7 @@ INFO = 0x8957E5
 PRIORITY_COLOUR = {"low": 0x8B949E, "routine": 0x1F6FEB, "medium": 0xD29922, "high": 0xF0883E, "critical": 0xDA3633}
 PRIORITY_DOT = {"low": "⚪", "routine": "🔵", "medium": "🟡", "high": "🟠", "critical": "🔴"}
 
-DEFAULT_EMBED_SETTINGS = {"accent": BRAND, "compact": False, "footer_note": "", "show_thumbnails": True}
+from core.branding import DEFAULT_EMBED_SETTINGS  # noqa: E402  (re-exported)
 
 
 class Look:

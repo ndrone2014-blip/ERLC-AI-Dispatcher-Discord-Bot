@@ -16,7 +16,10 @@ from ai.providers.catalog import CATALOG, SPEC
 from ai.providers.ollama import OllamaProvider
 from ai.providers.openai_compat import OpenAICompatProvider
 from bot import text_dispatch
+from bot.actions import BotActions, member_dict
 from bot.logbook import Logbook
+from community.platform import CommunityPlatform
+from community.roblox import RobloxAPI
 from config import Settings
 from core.version import NAME, RELEASE, VERSION
 from core import events as ev
@@ -52,7 +55,10 @@ PANEL_MODULES = {
 
 COGS = ["bot.commands.setup", "bot.commands.dispatch", "bot.commands.units", "bot.commands.records", "bot.commands.system",
         "bot.commands.pulse_dispatch", "bot.commands.pulse_units", "bot.commands.pulse_admin", "bot.commands.pulse_ai",
-        "bot.commands.pulse_info", "bot.commands.pulse_guide"]
+        "bot.commands.pulse_info", "bot.commands.pulse_guide",
+        # v4.0 Command Center
+        "bot.commands.community_members", "bot.commands.community_moderation", "bot.commands.community_staff",
+        "bot.commands.community_applications", "bot.commands.community_assistant"]
 
 
 class DispatchBot(commands.Bot):
@@ -84,11 +90,14 @@ class DispatchBot(commands.Bot):
         self.logbook: Logbook = None  # type: ignore[assignment]
         self.panels = PanelManager(self)
         self.webhook_server: Optional[WebhookServer] = None
+        self.community: CommunityPlatform = None  # type: ignore[assignment]
+        self.web = None  # web.server.DashboardServer when the dashboard is enabled
         self._tasks: list[asyncio.Task] = []
         self._card_locks: dict[int, asyncio.Lock] = {}
         self._card_pending: set[int] = set()
         for secret in (settings.discord_token, settings.gemini_api_key, settings.erlc_server_key, settings.erlc_global_key,
-                       settings.openai_compat_api_key, settings.secret_key,
+                       settings.openai_compat_api_key, settings.secret_key, settings.discord_client_secret,
+                       settings.roblox_client_secret,
                        *[v.get("api_key", "") for v in settings.provider_keys.values()]):
             register_secret(secret)
 
@@ -144,6 +153,12 @@ class DispatchBot(commands.Bot):
                             credentials=self._ai_credentials)
         self.core = DispatchCore(self.db, self.bus, self.audit, self.ai)
         self.logbook = Logbook(self)
+        # v4.0 Command Center: community platform shared by slash commands and the web dashboard.
+        self.roblox = RobloxAPI(self.session, client_id=s.roblox_client_id, client_secret=s.roblox_client_secret)
+        self.community = CommunityPlatform(self.db, self.bus, self.audit, self.permissions, actions=BotActions(self),
+                                           roblox=self.roblox, ai=self.ai, dispatch=self.core)
+        self.community.set_log_writer(self.logbook.write)
+        self._wire_notifications()
         self.sync = SyncManager(self.db, self.bus, self.secrets, self.session, lambda: self.core.intake,
                                 base_url=s.erlc_base_url, env_server_key=s.erlc_server_key, env_global_key=s.erlc_global_key,
                                 env_guild_id=s.dev_guild_id, poll_seconds=s.erlc_poll_seconds)
@@ -164,6 +179,8 @@ class DispatchBot(commands.Bot):
                      erlc_panel.ERLCView(), administration.AdminView(), statistics.StatsView()):
             self.add_view(view)
         self.add_dynamic_items(incidents_panel.IncidentAction, reports_panel.ReportAction, bolos.BoloAction)
+        from bot.commands import community_ui
+        self.add_dynamic_items(*community_ui.DYNAMIC_ITEMS)
 
         self.bus.subscribe(ev.ACTIVITY, self._on_activity)
         self.bus.subscribe(ev.INCIDENT_CREATED, self._on_incident_change)
@@ -186,6 +203,19 @@ class DispatchBot(commands.Bot):
             synced = await self.tree.sync()
             log.info("Synced %d global commands (can take up to an hour to appear)", len(synced))
 
+        if s.dashboard_enabled:
+            try:
+                from web.server import DashboardServer
+                self.web = DashboardServer(self)
+                await self.web.start()
+            except OSError as e:
+                log.error("Web dashboard could not start on %s:%s (%s). Is another program using that port? "
+                          "Change DASHBOARD_PORT in .env.", s.dashboard_host, s.dashboard_port, e)
+                self.web = None
+            except Exception:
+                log.exception("Web dashboard failed to start - the bot keeps running without it")
+                self.web = None
+
         if s.webhook_enabled:
             self.webhook_server = WebhookServer(s.webhook_host, s.webhook_port, self.sync.resolve_webhook_token, self.sync.on_webhook)
             await self.webhook_server.start()
@@ -197,7 +227,8 @@ class DispatchBot(commands.Bot):
         self.voice_commands.start()
         self._tasks += [asyncio.create_task(self._repeat_loop(), name="repeat-announcements"),
                         asyncio.create_task(self._backup_loop(), name="daily-backup"),
-                        asyncio.create_task(self._health_loop(), name="health")]
+                        asyncio.create_task(self._health_loop(), name="health"),
+                        asyncio.create_task(self._community_loop(), name="community")]
 
     async def on_ready(self) -> None:
         log.info("%s v%s (%s) logged in as %s (%s) in %d guild(s)", NAME, VERSION, RELEASE, self.user,
@@ -215,6 +246,84 @@ class DispatchBot(commands.Bot):
 
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         await self._update_presence()
+
+    # ------------------------------------------------------------------ v4.0 member events
+    async def on_member_join(self, member: discord.Member) -> None:
+        try:
+            await self.community.members.on_join(member.guild.id, member_dict(member))
+        except Exception:
+            log.exception("Member join handling failed")
+
+    async def on_member_remove(self, member: discord.Member) -> None:
+        try:
+            await self.community.members.on_leave(member.guild.id, member.id, member.name)
+        except Exception:
+            log.exception("Member leave handling failed")
+
+    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
+        if before.roles == after.roles and before.display_name == after.display_name and before.display_avatar == after.display_avatar:
+            return
+        try:
+            await self.community.members.upsert(after.guild.id, member_dict(after))
+            added = [r for r in after.roles if r not in before.roles]
+            removed = [r for r in before.roles if r not in after.roles]
+            if added or removed:
+                await self.logbook.write(after.guild.id, "roles", "Member Roles Changed",
+                                         fields=[("Member", f"{after.mention} ({after.name})", True)]
+                                         + ([("Added", " ".join(r.mention for r in added)[:1000], False)] if added else [])
+                                         + ([("Removed", " ".join(r.mention for r in removed)[:1000], False)] if removed else []))
+        except Exception:
+            log.exception("Member update handling failed")
+
+    async def on_app_command_completion(self, interaction: discord.Interaction, command) -> None:
+        try:
+            name = getattr(command, "qualified_name", str(command))
+            await self.community.analytics.record_command(interaction.guild_id, interaction.user.id, name, True)
+            if interaction.guild_id:
+                await self.logbook.write(interaction.guild_id, "commands", f"/{name}",
+                                         fields=[("User", f"{interaction.user.mention}", True),
+                                                 ("Channel", f"<#{interaction.channel_id}>" if interaction.channel_id else "—", True)],
+                                         actor_id=None)
+        except Exception:
+            log.debug("Could not record command usage", exc_info=True)
+
+    async def _sync_members(self, guild: discord.Guild) -> None:
+        try:
+            if not guild.chunked:
+                await guild.chunk(cache=True)
+            n = await self.community.members.bulk_sync(guild.id, [member_dict(m) for m in guild.members])
+            log.info("Member directory for %s synced (%d members)", guild.name, n)
+        except Exception:
+            log.exception("Member directory sync failed for %s", guild.id)
+
+    def _wire_notifications(self) -> None:
+        """Turn existing dispatch / integration events into dashboard notifications."""
+        notes = self.community.notifications
+
+        async def ai_failure(e: ev.Event) -> None:
+            if e.data.get("kind") in {"auth", "unavailable"}:
+                await notes.create(e.guild_id, "integration", f"AI provider problem: {e.data.get('provider')}",
+                                   body=str(e.data.get("message") or "")[:300], severity="warning", link="#/ai/providers",
+                                   permission="admin.ai", dedupe_key=f"ai:{e.data.get('provider')}:{e.data.get('kind')}",
+                                   window_seconds=3600)
+
+        async def erlc_status(e: ev.Event) -> None:
+            if e.data.get("status") == "error":
+                await notes.create(e.guild_id, "integration", "ER:LC API error", body=str(e.data.get("detail") or "")[:300],
+                                   severity="warning", link="#/settings/integrations", permission="admin.erlc",
+                                   dedupe_key="erlc:error", window_seconds=3600)
+
+        async def assessed(e: ev.Event) -> None:
+            inc = await self.core.incidents.get(e.data.get("incident_id"))
+            if inc and (inc.get("priority") or inc.get("ai_priority")) == "critical" and inc["status"] != "closed":
+                await notes.create(e.guild_id, "dispatch", f"Critical incident #{inc['number']}",
+                                   body=f"{inc.get('nature') or 'Unknown'} at {inc.get('location') or 'unknown location'}",
+                                   severity="critical", link="#/dispatch", permission="incident.view",
+                                   dedupe_key=f"critical:{inc['id']}", window_seconds=86400)
+
+        self.bus.subscribe("ai.failure", ai_failure)
+        self.bus.subscribe(ev.ERLC_STATUS, erlc_status)
+        self.bus.subscribe(ev.INCIDENT_ASSESSED, assessed)
 
     def _presence_text(self) -> str:
         count = len(self.guilds)
@@ -235,6 +344,7 @@ class DispatchBot(commands.Bot):
         self.sync.start_guild(guild.id)
         self.player.start_guild(guild.id)
         asyncio.create_task(self.panels.refresh_all(guild.id, force=True))
+        asyncio.create_task(self._sync_members(guild))
 
     async def close(self) -> None:
         log.info("Shutting down gracefully…")
@@ -250,6 +360,8 @@ class DispatchBot(commands.Bot):
             await self.voice.shutdown()
             if self.webhook_server:
                 await self.webhook_server.stop()
+            if self.web:
+                await self.web.stop()
         except Exception:
             log.exception("Error during shutdown")
         await super().close()
@@ -277,6 +389,29 @@ class DispatchBot(commands.Bot):
                 await create_backup(self.db, self.settings.backup_dir)
             except Exception:
                 log.exception("Automatic backup failed")
+
+    async def _community_loop(self) -> None:
+        """Reminders, scheduled messages, leave dates, overdue shifts and auto-archiving (v4.0)."""
+        await self.wait_until_ready()
+        tick = 0
+        while True:
+            await asyncio.sleep(60)
+            tick += 1
+            try:
+                await self.community.automation.run_due_schedules()
+                await self.community.verification.expire_old()
+            except Exception:
+                log.exception("Scheduled messages failed")
+            for g in list(self.guilds):
+                try:
+                    await self.community.sessions.tick(g.id)
+                    await self.community.shifts.close_overdue(g.id)
+                    if tick % 10 == 1:
+                        await self.community.staff.tick(g.id)
+                    if tick % 60 == 1:
+                        await self.community.applications.tick(g.id)
+                except Exception:
+                    log.exception("Community tick failed for %s", g.id)
 
     async def _health_loop(self) -> None:
         await self.wait_until_ready()
@@ -484,10 +619,20 @@ class DispatchBot(commands.Bot):
             return await reply(interaction, "⛔ You can't use this command.", error=True)
         if isinstance(error, app_commands.CommandOnCooldown):
             return await reply(interaction, f"⏳ Slow down — try again in {error.retry_after:.0f}s.", error=True)
-        log.error("Command error in /%s", interaction.command.qualified_name if interaction.command else "?", exc_info=original)
+        from community.common import ServiceError
         from security.validation import ValidationError
-        if isinstance(original, ValidationError):
+        if isinstance(original, (ValidationError, ServiceError)):  # expected, user-facing problems
             return await reply(interaction, f"⚠️ {original}", error=True)
+        log.error("Command error in /%s", interaction.command.qualified_name if interaction.command else "?", exc_info=original)
+        try:
+            if self.community and interaction.command:
+                await self.community.analytics.record_command(interaction.guild_id, interaction.user.id,
+                                                              interaction.command.qualified_name, False)
+                if interaction.guild_id:
+                    await self.logbook.write(interaction.guild_id, "errors", f"Command error: /{interaction.command.qualified_name}",
+                                             description=f"`{type(original).__name__}` — details are in the bot's log file.")
+        except Exception:
+            pass
         await reply(interaction, "⚠️ Something went wrong while processing that. The error was logged for administrators.", error=True)
 
     async def on_error(self, event_method: str, /, *args, **kwargs) -> None:

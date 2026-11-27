@@ -27,6 +27,22 @@ if TYPE_CHECKING:
 
 PANEL_CHOICES = [app_commands.Choice(name=v, value=k) for k, v in PANEL_TITLES.items()]
 LOG_CHOICES = [app_commands.Choice(name=f"{icon} {label}"[:100], value=k) for k, (label, icon) in LOG_CATEGORIES.items()]
+
+
+async def _log_category_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    # More than 25 categories exist since v4.0, so these options use autocomplete instead of fixed choices.
+    cur = current.lower()
+    return [c for c in LOG_CHOICES if cur in c.name.lower() or cur in c.value][:25]
+
+
+def _log_choice(value: Optional[str]) -> Optional[app_commands.Choice[str]]:
+    if value is None:
+        return None
+    for c in LOG_CHOICES:
+        if c.value == value or c.name == value:
+            return c
+    from security.validation import ValidationError
+    raise ValidationError("Unknown log category - pick one from the list.")
 GROUP_CHOICES = [app_commands.Choice(name=GROUP_LABEL[g], value=g) for g in GROUPS if g not in {"owner", "citizen"}]
 KIND_CHOICES = [app_commands.Choice(name=v[:100], value=k) for k, v in DEPARTMENT_KINDS.items()]
 PRIORITY_CHOICES = [app_commands.Choice(name=PRIORITY_LABEL[p], value=p) for p in PRIORITIES]
@@ -52,27 +68,35 @@ async def _status_autocomplete(interaction: discord.Interaction, current: str) -
 
 
 class LogToggleView(discord.ui.View):
-    """Multi-select of enabled log categories (shown by /logs settings)."""
+    """Multi-selects of enabled log categories (shown by /logs settings). Discord allows 25 options per
+    select, so dispatch events and community events (v4.0) get one select each."""
 
     def __init__(self, enabled: dict[str, bool]):
         super().__init__(timeout=300)
-        sel = discord.ui.Select(placeholder="Select the events to log…", min_values=0, max_values=len(LOG_CATEGORIES),
-                                options=[discord.SelectOption(label=label[:100], value=k, emoji=icon, default=enabled.get(k, True))
-                                         for k, (label, icon) in LOG_CATEGORIES.items()])
-        sel.callback = self._picked
-        self.sel = sel
-        self.add_item(sel)
+        keys = list(LOG_CATEGORIES)
+        for i in range(0, len(keys), 25):
+            chunk = keys[i:i + 25]
+            sel = discord.ui.Select(placeholder="Dispatch events to log…" if i == 0 else "Community events to log…",
+                                    min_values=0, max_values=len(chunk),
+                                    options=[discord.SelectOption(label=LOG_CATEGORIES[k][0][:100], value=k, emoji=LOG_CATEGORIES[k][1],
+                                                                  default=enabled.get(k, True)) for k in chunk])
+            sel.callback = self._make_callback(sel, chunk)
+            self.add_item(sel)
 
-    async def _picked(self, interaction: discord.Interaction):
-        if not await require(interaction, "admin.config"):
-            return
-        bot = interaction.client
-        chosen = set(self.sel.values)
-        for k in LOG_CATEGORIES:
-            await bot.logbook.set_category(interaction.guild_id, k, k in chosen)
-        await bot.audit.record(interaction.guild_id, interaction.user.id, "logs.categories", None, {"enabled": sorted(chosen)})
-        await interaction.response.edit_message(content=f"✅ Logging {len(chosen)}/{len(LOG_CATEGORIES)} event types. "
-                                                        "Disabled events are not posted or stored.", view=None)
+    def _make_callback(self, sel: discord.ui.Select, chunk: list[str]):
+        async def _picked(interaction: discord.Interaction):
+            if not await require(interaction, "admin.config"):
+                return
+            bot = interaction.client
+            chosen = set(sel.values)
+            for k in chunk:
+                await bot.logbook.set_category(interaction.guild_id, k, k in chosen)
+            await bot.audit.record(interaction.guild_id, interaction.user.id, "logs.categories", None, {"enabled": sorted(chosen)})
+            settings = await bot.logbook.settings(interaction.guild_id)
+            on = sum(1 for v in settings["categories"].values() if v)
+            await interaction.response.edit_message(content=f"✅ Logging {on}/{len(LOG_CATEGORIES)} event types. "
+                                                            "Disabled events are not posted or stored.", view=self)
+        return _picked
 
 
 class PulseAdminCog(commands.Cog):
@@ -265,6 +289,24 @@ class PulseAdminCog(commands.Cog):
     dashboard = app_commands.Group(name="dashboard", description="Optional dashboards (panels) — enable only what you need",
                                    guild_only=True)
 
+    @dashboard.command(name="web", description="Open the Pulse Dispatch web dashboard")
+    async def dashboard_web(self, interaction: discord.Interaction):
+        web = self.bot.web
+        url = self.bot.settings.dashboard_url
+        if not web or not web.running:
+            return await reply(interaction, "The web dashboard is turned off or failed to start. The bot owner can enable it in `.env` "
+                                            "(`DASHBOARD_ENABLED=true`) — see docs/DASHBOARD.md.", error=True)
+        look = await E.look_for(self.bot, interaction.guild_id)
+        e = E.base("🖥️ Pulse Dispatch Dashboard", look=look, url=f"{url}/#/g/{interaction.guild_id}",
+                   description=f"Sign in with Discord at **{url}**.\nYou'll only see the sections your roles allow.")
+        if not self.bot.settings.dashboard_public_url:
+            e.add_field(name="Note", value="This address only works on the computer running the bot. To let staff open it from anywhere, "
+                                           "set `DASHBOARD_PUBLIC_URL` (see docs/DASHBOARD.md).", inline=False)
+        view = discord.ui.View()
+        if url.startswith("https://"):
+            view.add_item(discord.ui.Button(label="Open dashboard", url=f"{url}/#/g/{interaction.guild_id}"))
+        await reply(interaction, embed=e, view=view if view.children else None)
+
     @dashboard.command(name="status", description="Which dashboards are enabled and where they are")
     async def dashboard_status(self, interaction: discord.Interaction):
         if not await require(interaction, "admin.config"):
@@ -384,31 +426,34 @@ class PulseAdminCog(commands.Cog):
         await interaction.followup.send(f"📋 Created {ch.mention} (staff only) and set it as the log channel.", ephemeral=True)
 
     @logs.command(name="toggle", description="Enable or disable one log event type")
-    @app_commands.choices(category=LOG_CHOICES)
-    async def logs_toggle(self, interaction: discord.Interaction, category: app_commands.Choice[str], enabled: bool):
+    @app_commands.autocomplete(category=_log_category_autocomplete)
+    async def logs_toggle(self, interaction: discord.Interaction, category: str, enabled: bool):
         if not await require(interaction, "admin.config"):
             return
+        category = _log_choice(category)
         await self.bot.logbook.set_category(interaction.guild_id, category.value, enabled)
         await self.bot.audit.record(interaction.guild_id, interaction.user.id, "logs.toggle", category.value, {"enabled": enabled})
         await reply(interaction, f"{'✅' if enabled else '⬜'} {category.name} logging {'enabled' if enabled else 'disabled'}.")
 
     @logs.command(name="route", description="Send one event type to a different channel (empty = main log channel)")
-    @app_commands.choices(category=LOG_CHOICES)
-    async def logs_route(self, interaction: discord.Interaction, category: app_commands.Choice[str],
+    @app_commands.autocomplete(category=_log_category_autocomplete)
+    async def logs_route(self, interaction: discord.Interaction, category: str,
                          channel: Optional[discord.TextChannel] = None):
         if not await require(interaction, "admin.config"):
             return
+        category = _log_choice(category)
         await self.bot.logbook.set_category_channel(interaction.guild_id, category.value, channel.id if channel else None)
         await self.bot.audit.record(interaction.guild_id, interaction.user.id, "logs.route", category.value,
                                     {"channel": channel.name if channel else None})
         await reply(interaction, f"{category.name} → {channel.mention if channel else 'main log channel'}.")
 
     @logs.command(name="view", description="View previous dispatch records (works even without a log channel)")
-    @app_commands.choices(category=LOG_CHOICES)
-    async def logs_view(self, interaction: discord.Interaction, category: Optional[app_commands.Choice[str]] = None,
+    @app_commands.autocomplete(category=_log_category_autocomplete)
+    async def logs_view(self, interaction: discord.Interaction, category: Optional[str] = None,
                         count: app_commands.Range[int, 1, 25] = 15):
         if not await require(interaction, "report.view_all"):
             return
+        category = _log_choice(category)
         rows = await self.bot.logbook.recent(interaction.guild_id, category.value if category else None, count)
         look = await E.look_for(self.bot, interaction.guild_id)
         lines = []

@@ -1,5 +1,81 @@
 # Changelog
 
+## 🖥️ Pulse Dispatch | ERLC — Command Center Update · v4.0.0 (2026-11-27)
+
+The biggest update yet: Pulse Dispatch grows from a dispatch bot into a full ER:LC community platform with a web
+dashboard. **Everything from v3 keeps working** (settings, panels, incidents, units, keys and commands). New database
+tables are added automatically on first start.
+
+> Setup: add `DISCORD_CLIENT_SECRET` (and a redirect) for the dashboard — see **docs/DASHBOARD.md**.
+> Roblox verification works with no setup — see **docs/ROBLOX_VERIFICATION.md**.
+> Give the bot **Manage Roles, Manage Nicknames, Moderate Members, Kick Members, Ban Members** for the new features.
+
+### 🖥️ Web dashboard (served by the bot itself)
+- Sign in with Discord; you only see servers and sections your roles allow, checked on the server for every request.
+- **Dashboard** with a status band and panels you can choose and reorder; **Analytics** (today → 90 days or custom,
+  12 metrics from recorded data only); live **Activity feed**.
+- **Dispatch center**: live incidents (priority-coloured), create/edit incidents, assign/clear units, notes,
+  priorities, custom incident statuses, unit status changes, backups, BOLOs. Updates arrive live.
+- Incident history, units, dispatch settings (dispatcher behaviour, departments, unit statuses, incident statuses).
+- Members, verification, applications (review + drag-free form builder), sessions, staff, shifts, leave requests,
+  moderation, automations, scheduled messages, log viewer with CSV export, audit log, log routing, embed builder with
+  live preview, welcome/leave messages, announcements, slash command list, appearance, AI providers (write-only keys),
+  dispatcher personality, AI usage, channels, ER:LC key, permissions matrix, notifications, integration status, sessions.
+- Notifications bell, **Ask Pulse**, light/dark mode, searchable collapsible navigation, mobile layout
+  (tables become cards), keyboard accessible, reduced-motion aware. A red/blue light bar pulses during critical incidents.
+- Security: HttpOnly hashed sessions, CSRF tokens + origin checks, strict CSP, rate limits, write-only secrets,
+  per-server isolation, audit logging.
+
+### ✅ Roblox verification
+- **Profile code** method (no setup): random word phrase in the Roblox *About* section, checked through the public
+  Roblox Users API. **Sign in with Roblox** (official OAuth 2.0 + PKCE) optional.
+- Verified/unverified roles, nickname formats, minimum account age, banned-account check, DM on success, persistent
+  **Verify** panel, staff link/unlink/sync/lookup, full verification history and logs. One Roblox account per member per server.
+
+### 👥 Staff, shifts & sessions
+- Staff directory and profiles, rank ladder with automatic rank roles, promote/demote, departments, confidential notes,
+  history, leave requests with approval (leave starts/ends on its dates), inactivity alerts.
+- Shifts with types, notes, on-duty role, auto-close after N hours, leaderboard.
+- Sessions: schedule, announce (with Join/Leave buttons), reminders with role ping and DMs, participants.
+
+### 📝 Applications
+- Custom forms with 6 answer types (short, long, multiple choice, dropdown, yes/no, required confirmation), up to
+  25 questions, role restrictions, cooldowns, require-verification, approval role, review channel.
+- 7 ready-made templates (Staff, Police, Sheriff, Fire, EMS, Dispatch, Civilian) that start closed.
+- Review workflow: under review, request more information (applicant answers with `/application respond`), approve,
+  deny, archive, internal notes, DM results. `/apply` is a step-by-step wizard in Discord.
+
+### 🛡️ Moderation
+- `/warn`, `/timeout`, `/kick`, `/ban` (even users who left), `/unban`, `/history`, `/case view|revoke|edit`,
+  `/report-member`. Numbered cases with evidence, outcome and source.
+- Role-hierarchy checks, confirmation for kicks/bans, DM before the action, appeal info, automatic escalation after N warnings.
+- A failed Discord action is stored as a **failed** case with the reason — never shown as a success.
+
+### ⚙️ Automation, notifications, embeds
+- Event automations (18 triggers, 7 actions, conditions, placeholders, templates) with duplicate protection,
+  loop protection and visible failures. Scheduled (repeating) messages.
+- Central notifications with per-permission visibility, read/unread state, dedupe and optional Discord channels.
+- Embed templates with Discord's limits enforced, link buttons, 8 presets; welcome/leave messages with auto-roles.
+
+### 🧠 Pulse Assistant (`/ask` and "Ask Pulse")
+- Recognises intents in any phrasing ("show active calls", "are there any incidents right now?", "who's on shift?",
+  "start my shift", "am I verified?") and answers from live data in under a millisecond — no AI request.
+- Respects the asker's permissions; actions (close incident, start/end shift) always ask for confirmation.
+- Only conversational questions go to the AI, grounded in the real situation and told never to invent facts.
+
+### 📋 Logging
+- 13 new log categories: member joins/leaves, role changes, verification, moderation, applications, staff, shifts,
+  sessions, automations, commands, security, dashboard, system errors (noisy ones start off).
+- `/logs toggle|route|view` use autocomplete now (there are more than 25 categories); `/logs settings` has two menus.
+
+### 🧩 Other
+- New permission groups: Management, Moderator, Department Leader, Staff Member (plus ~35 new permissions).
+- New commands: `/verify`, `/verification`, `/profile`, `/member`, `/staff`, `/shift`, `/session`, `/apply`,
+  `/application`, `/warn`, `/timeout`, `/kick`, `/ban`, `/unban`, `/history`, `/case`, `/report-member`, `/ask`,
+  `/server-info`, `/bot-info`, `/announcement`, `/dashboard web` (67 top-level commands in total).
+- Command usage tracking, member directory mirror, incident dispatcher + custom status fields.
+- Tests: 46 new tests for the platform services and dashboard API (permissions, server isolation, honest failures).
+
 ## 🔒 Close all incidents (2026-11-26)
 - **New `/incident-close-all`.** Closes every active incident at once (asks for confirmation, needs the same
   permission as `/incident-close`). Assigned units are cleared and all queued radio traffic for those calls
