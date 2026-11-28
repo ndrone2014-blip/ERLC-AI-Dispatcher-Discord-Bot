@@ -1013,7 +1013,7 @@ class Api(PlatformApi):
             text = " | ".join([d.get("description") or ""] + [f"{f[0]}: {f[1]}" for f in d.get("fields") or [] if len(f) > 1]).strip(" |")
             w.writerow([r["at"], r["category"], r["title"], text, r["actor_id"] or "", r["incident_id"] or ""])
         await self.c.audit.record(ctx.guild_id, ctx.user_id, "dashboard.export", "logs", {"rows": len(rows)})
-        return CsvResponse(buf.getvalue(), "pulse-logs.csv")
+        return CsvResponse(buf.getvalue(), "hive-logs.csv")
 
     @route("GET", "/logs/audit", "logs.view")
     async def audit(self, ctx: Ctx):
@@ -1379,9 +1379,9 @@ class Api(PlatformApi):
                          {"name": "Server name and player count", "available": True, "how": "Official ER:LC API"},
                          {"name": "Event webhooks", "available": bool(s.webhook_enabled), "how": "Optional; needs a public HTTPS address"},
                          {"name": "Running in-game commands", "available": False,
-                          "how": "Supported by the API but not exposed by Pulse Dispatch for safety. Use the in-game console."},
+                          "how": "Supported by the API but not exposed by Hive Dispatch for safety. Use the in-game console."},
                          {"name": "Staff or player bans in ER:LC", "available": False,
-                          "how": "Not part of what Pulse Dispatch manages. Handle bans in game; record them as a case here."}]},
+                          "how": "Not part of what Hive Dispatch manages. Handle bans in game; record them as a case here."}]},
             "roblox": {"profile_code": True, "oauth_configured": self.c.verification.oauth_available(),
                        "oauth_ready": self.c.verification.oauth_available() and bool(s.dashboard_public_url)},
             "ai": {"providers_ready": sum(1 for p in providers if p["configured"] and p["enabled"]), "providers_total": len(providers)},

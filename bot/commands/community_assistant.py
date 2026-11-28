@@ -1,4 +1,4 @@
-"""v4.0: /ask (Pulse Assistant), /server-info, /bot-info, /announcement."""
+"""v4.0: /ask (Hive Assistant), /server-info, /bot-info, /announcement."""
 from __future__ import annotations
 
 import datetime as dt
@@ -39,7 +39,7 @@ class CommunityAssistantCog(commands.Cog):
     def __init__(self, bot: "DispatchBot"):
         self.bot = bot
 
-    @app_commands.command(name="ask", description="Ask Pulse: active calls, units, shifts, sessions, verification and more")
+    @app_commands.command(name="ask", description="Ask Hive: active calls, units, shifts, sessions, verification and more")
     @app_commands.guild_only()
     async def ask(self, interaction: discord.Interaction, question: app_commands.Range[str, 2, 500]):
         if not await require(interaction, "assistant.use"):
@@ -86,7 +86,7 @@ class CommunityAssistantCog(commands.Cog):
         e.add_field(name="Created", value=f"<t:{int(g.created_at.timestamp())}:D>", inline=True)
         await reply(interaction, embed=e)
 
-    @app_commands.command(name="bot-info", description="Pulse Dispatch status: version, uptime, latency, database, AI, dashboard")
+    @app_commands.command(name="bot-info", description="Hive Dispatch status: version, uptime, latency, database, AI, dashboard")
     async def bot_info(self, interaction: discord.Interaction):
         t0 = time.perf_counter()
         db_ok = True

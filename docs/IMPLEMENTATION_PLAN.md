@@ -70,12 +70,12 @@ Status legend: ✅ implemented + automated test · 🟢 implemented, verified of
 - ❌ Bank robberies, pursuits, shootings etc. are **not exposed** as events. Officers can report them; they are labelled **UNVERIFIED** and supervisors can review them. They can never be marked API-verified.
 - ❌ The event-webhook payload format is undocumented, so incidents are never built from it.
 
-## Phase 8 — 🦃 Thanksgiving Update (Pulse Dispatch v3.0.0)
+## Phase 8 — 🦃 Thanksgiving Update (Hive Dispatch v3.0.0)
 - ✅ Local natural-language engine (`dispatch/nlu.py`): word order, synonyms, typos, slang, 10-codes, locations, follow-ups
 - ✅ Report intake with duplicate merging (`DispatchCore.report_incident`), plain-language `#dispatch` channel
 - ✅ 15 AI providers (`ai/providers/catalog.py`), per-server encrypted keys, Automatic mode, failover toggle, response cache
 - ✅ Optional dashboards (setup presets, `/dashboard`), professional logging (`bot/logbook.py`, 14 categories)
-- ✅ Pulse embed design system (`bot/embeds.py`), varied radio phrasing (`dispatch/phrases.py`)
+- ✅ Hive embed design system (`bot/embeds.py`), varied radio phrasing (`dispatch/phrases.py`)
 - ✅ New statuses / specialized departments, 30+ new commands, per-server customization, statistics
 - ✅ Tests: `tests/test_thanksgiving.py`
 - 🟢 Live check after restart: `/setup run`, `/ai-provider key`, talk in `#dispatch`, `/logs view`

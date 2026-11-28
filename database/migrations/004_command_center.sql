@@ -1,4 +1,4 @@
--- Pulse Dispatch | ERLC - v4.0.0 "Command Center" update
+-- Hive Dispatch | ERLC - v4.0.0 "Command Center" update
 -- Community management platform: members, Roblox verification, staff, shifts, sessions, applications,
 -- moderation, automation, notifications, embed templates, analytics and the web dashboard.
 -- Every table is scoped by guild_id so servers never see each other's data.

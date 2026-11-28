@@ -104,7 +104,7 @@ class Settings:
     dashboard_public_url: str = field(default_factory=lambda: _str("DASHBOARD_PUBLIC_URL").rstrip("/"))
     # Set to true only when the dashboard is behind a tunnel/reverse proxy (Cloudflare Tunnel, ngrok...).
     dashboard_trust_proxy: bool = field(default_factory=lambda: _bool("DASHBOARD_TRUST_PROXY", False))
-    # Netlify hosting (docs/NETLIFY.md): the same random value as PULSE_PROXY_SECRET in Netlify. When set, the bot only
+    # Netlify hosting (docs/NETLIFY.md): the same random value as HIVE_PROXY_SECRET in Netlify. When set, the bot only
     # answers dashboard requests that come through your Netlify site (and trusts the visitor IP it forwards).
     dashboard_proxy_secret: str = field(default_factory=lambda: _str("DASHBOARD_PROXY_SECRET"))
     # Discord OAuth2 (Developer Portal -> OAuth2). The client ID defaults to the bot's own application ID.

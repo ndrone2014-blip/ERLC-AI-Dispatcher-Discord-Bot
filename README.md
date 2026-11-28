@@ -1,4 +1,4 @@
-# 🚨 Pulse Dispatch | ERLC
+# 🚨 Hive Dispatch | ERLC
 
 An intelligent, realistic dispatch operation and **ER:LC community management platform** for **Emergency Response:
 Liberty County** roleplay communities: a Discord bot **plus a web dashboard it serves itself**.
@@ -241,7 +241,7 @@ Optional: `set PIPER_TEST_VOICE=data\voices\en_US-ryan-medium.onnx` and `set RUN
 
 ```
 main.py  config.py  requirements.txt  .env.example  setup.bat  start.bat  run_tests.bat
-bot/        Discord client, embeds (Pulse design system), logbook, text dispatch, UI helpers, slash-command cogs
+bot/        Discord client, embeds (Hive design system), logbook, text dispatch, UI helpers, slash-command cogs
 panels/     the 11 persistent panels (dashboard, incidents, units, voice, citizen, reports, bolos, ai, erlc, admin, stats)
 dispatch/   incidents, calls intake, natural-language engine (nlu), radio phrasing, units, assignments,
             recommendations, escalation, announcements, BOLOs, reports
@@ -252,7 +252,7 @@ voice/      connection, receive sink (DAVE), speech-to-text, text-to-speech, rad
 database/   SQLite connection, migrations, backups
 security/   permissions, validation, audit log, encrypted secrets
 community/  v4.0 platform services (no discord.py): members, Roblox verification, staff & shifts, sessions,
-            applications, moderation, automation, notifications, embeds, analytics, Pulse Assistant
+            applications, moderation, automation, notifications, embeds, analytics, Hive Assistant
 web/        v4.0 web dashboard: aiohttp server (auth, security), JSON API, static app (no build step)
 core/       event bus, logging (secret redaction), version, log categories, branding
 docs/       dashboard & Roblox verification guides, implementation plan & checklist, voice notes

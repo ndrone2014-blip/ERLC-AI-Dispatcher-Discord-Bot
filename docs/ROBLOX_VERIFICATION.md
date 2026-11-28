@@ -1,6 +1,6 @@
 # ✅ Roblox Verification (v4.0)
 
-Pulse Dispatch links a member's Discord account to their Roblox account. An account is **only** linked after a
+Hive Dispatch links a member's Discord account to their Roblox account. An account is **only** linked after a
 verification really succeeds. A member typing a name is never enough.
 
 Members never have to change their Roblox bio. When someone presses **Verify**, the bot tries these in order:
@@ -15,8 +15,8 @@ Members never have to change their Roblox bio. When someone presses **Verify**, 
 
 ## 1. Basics (2 minutes)
 
-1. **Bot permissions.** In **Server Settings → Roles → Pulse Dispatch**, turn on **Manage Roles** and
-   **Manage Nicknames**, then drag the Pulse Dispatch role **above** the roles it should give (e.g. *Verified*).
+1. **Bot permissions.** In **Server Settings → Roles → Hive Dispatch**, turn on **Manage Roles** and
+   **Manage Nicknames**, then drag the Hive Dispatch role **above** the roles it should give (e.g. *Verified*).
 2. **Roles.** On the dashboard, **Verification → Settings**, pick the verified role (and an unverified role if you
    use one). Or: `/verification roles verified_role:@Verified`
 3. **Panel.** `/verification panel` and pick the channel **from the list Discord shows** (or leave it out to post
@@ -49,7 +49,7 @@ profile code on as a backup.
 
 ## 3. Instant verification with Bloxlink or RoVer
 
-If your members already verified with Bloxlink or RoVer anywhere, Pulse can ask those services who they are, so
+If your members already verified with Bloxlink or RoVer anywhere, Hive can ask those services who they are, so
 they're verified the moment they press **Verify** or join the server. You need one or both keys:
 
 * **Bloxlink:** [blox.link/dashboard](https://blox.link/dashboard) → your server → **Developer / API keys** →
@@ -59,14 +59,14 @@ they're verified the moment they press **Verify** or join the server. You need o
 
 **No Roblox OAuth app?** (Roblox requires ID verification to create one.) Then **Verify** shows a
 **Verify on Bloxlink / RoVer** button instead. Members sign in there with the official Roblox login, come back, press
-**I'm done**, and Pulse picks the link up with your key.
+**I'm done**, and Hive picks the link up with your key.
 
 Put the key in `.env` and restart the bot. That's it; it works for every server the bot is in:
 ```
 ROVER_API_KEY=your-rover-key
 BLOXLINK_API_KEY=your-bloxlink-key
 ```
-Or, per server, paste it on the Pulse dashboard instead: **Verification → Settings → Instant verification**, press **Save**, then
+Or, per server, paste it on the Hive dashboard instead: **Verification → Settings → Instant verification**, press **Save**, then
 **Test**. Test looks *you* up, so it says whether the key works. Keys are stored encrypted and never shown again.
 
 Toggles on the same page: use Bloxlink, use RoVer, verify automatically when someone joins.

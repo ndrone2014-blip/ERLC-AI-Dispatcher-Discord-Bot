@@ -87,7 +87,7 @@ CATALOG: list[ProviderSpec] = [
         "sk-or-", models=("openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "google/gemma-3-27b-it:free",
                           "mistralai/mistral-small-3.2-24b-instruct:free", "deepseek/deepseek-chat-v3-0324:free"),
         extra_headers={"HTTP-Referer": "https://github.com/ndrone2014-blip/ERLC-AI-Dispatcher-Discord-Bot",
-                       "X-Title": "Pulse Dispatch ERLC"},
+                       "X-Title": "Hive Dispatch ERLC"},
         docs_url="https://openrouter.ai/docs/api/reference/limits"),
     ProviderSpec(
         "mistral", "Mistral AI", "https://api.mistral.ai/v1", "mistral-small-latest",

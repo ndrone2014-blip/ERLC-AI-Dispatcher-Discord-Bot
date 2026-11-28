@@ -95,7 +95,7 @@ class MemberService:
                 if err:
                     problems.append(f"Welcome message: {err}")
         for rid in s.get("auto_role_ids") or []:
-            err = await self.p.actions.add_role(guild_id, uid, int(rid), "Pulse Dispatch auto-role")
+            err = await self.p.actions.add_role(guild_id, uid, int(rid), "Hive Dispatch auto-role")
             if err:
                 problems.append(f"Auto-role {rid}: {err}")
         await self.p.log(guild_id, "members", "Member Joined",

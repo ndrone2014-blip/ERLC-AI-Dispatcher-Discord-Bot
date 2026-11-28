@@ -1,4 +1,4 @@
-/* Pulse Dispatch v5.0 pages: overview, activity, ER:LC live, players, moderation center, BOLOs, staff.
+/* Hive Dispatch v5.0 pages: overview, activity, ER:LC live, players, moderation center, BOLOs, staff.
  * Every page builds its layout once and then updates its data regions in place (S.refresh), so live updates never
  * reset filters, scroll position, tabs or forms. */
 "use strict";
@@ -95,7 +95,7 @@ page("dashboard", "Dashboard", async (el) => {
     body: d.notifications.length ? h("div", { class: "mini-list" }, d.notifications.map((n) => h("div", { class: "mini" }, h("span", { class: `note-ico sev-${n.severity}` }, icon(n.severity === "critical" || n.severity === "warning" ? "alert" : "bell")),
       h("span", { class: "grow" }, h("b", null, n.title), h("small", { class: "muted" }, when(n.created_at)))))) : emptyState("All caught up", null, null, "bell") });
   P.quick = () => {
-    const acts = paletteActions().filter((a) => !["Notifications", "Sign out", "Ask Pulse"].includes(a.title)).slice(0, 6);
+    const acts = paletteActions().filter((a) => !["Notifications", "Sign out", "Ask Hive"].includes(a.title)).slice(0, 6);
     return card({ title: "Quick actions", icon: "zap", body: h("div", null, h("div", { class: "quick" }, acts.map((a) => h("button", { class: "quick-btn", onclick: a.run }, icon(a.icon), h("span", null, a.title)))),
       h("button", { class: "btn ghost block", onclick: openPalette }, icon("command"), "Search everything", h("kbd", null, "Ctrl K"))) });
   };

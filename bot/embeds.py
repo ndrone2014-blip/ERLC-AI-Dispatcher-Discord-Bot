@@ -1,8 +1,8 @@
-"""Pulse Dispatch embed design system.
+"""Hive Dispatch embed design system.
 
 One consistent look for every dispatch message and log entry: professional titles,
 a single icon per title, colour-coded priorities, timestamps, organised fields and the
-"Pulse Dispatch | ERLC" footer. Per-server appearance comes from `embed_settings`
+"Hive Dispatch | ERLC" footer. Per-server appearance comes from `embed_settings`
 (accent colour, compact mode, footer note) - see /settings embed.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import discord
 
 from database.models import PRIORITY_LABEL, SOURCE_LABEL, VERIFICATION_LABEL, loads, parse_iso
 
-FOOTER_TEXT = "Pulse Dispatch | ERLC"
+FOOTER_TEXT = "Hive Dispatch | ERLC"
 BRAND = 0x1F6FEB
 OK = 0x2EA043
 WARN = 0xD29922

@@ -116,7 +116,7 @@ class KeyModal(discord.ui.Modal):
         await interaction.followup.send(embed=e, ephemeral=True)
 
 
-class PulseAICog(commands.Cog):
+class HiveAICog(commands.Cog):
     def __init__(self, bot: "DispatchBot"):
         self.bot = bot
 
@@ -315,4 +315,4 @@ class PulseAICog(commands.Cog):
 
 
 async def setup(bot: "DispatchBot"):
-    await bot.add_cog(PulseAICog(bot))
+    await bot.add_cog(HiveAICog(bot))

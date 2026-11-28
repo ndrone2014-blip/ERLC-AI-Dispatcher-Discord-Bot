@@ -1,4 +1,4 @@
-# Pulse Dispatch v5.0 — Platform Overhaul: audit & implementation plan
+# Hive Dispatch v5.0 — Platform Overhaul: audit & implementation plan
 
 ## 1. Audit of v4.0 (what exists)
 

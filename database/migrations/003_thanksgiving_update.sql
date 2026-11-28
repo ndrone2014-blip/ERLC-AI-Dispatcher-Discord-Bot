@@ -1,4 +1,4 @@
--- Pulse Dispatch | ERLC - Thanksgiving Update
+-- Hive Dispatch | ERLC - Thanksgiving Update
 -- Persistent dispatch log (always available, even without a log channel) + performance indexes.
 CREATE TABLE IF NOT EXISTS dispatch_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

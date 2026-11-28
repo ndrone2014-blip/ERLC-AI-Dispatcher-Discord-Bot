@@ -1,4 +1,4 @@
-"""Pulse Dispatch web dashboard server (aiohttp, runs inside the bot process).
+"""Hive Dispatch web dashboard server (aiohttp, runs inside the bot process).
 
 Security model
 * Sign-in with Discord OAuth2 (scope `identify` only). We learn who you are; which servers you may
@@ -151,7 +151,8 @@ class DashboardServer:
     def via_proxy(self, request: web.Request) -> bool:
         """True when the request came through the Netlify edge function (it sends the shared secret)."""
         secret = self.s.dashboard_proxy_secret
-        got = request.headers.get("X-Pulse-Proxy-Secret", "")
+        # X-Pulse-* is the header name used before the rename to Hive Dispatch; accepted so an older site still works.
+        got = request.headers.get("X-Hive-Proxy-Secret") or request.headers.get("X-Pulse-Proxy-Secret", "")
         return bool(secret) and bool(got) and secrets.compare_digest(got, secret)
 
     @web.middleware
@@ -165,8 +166,9 @@ class DashboardServer:
         return await handler(request)
 
     def ip(self, request: web.Request) -> str:
-        if self.via_proxy(request) and request.headers.get("X-Pulse-Client-IP"):
-            return request.headers["X-Pulse-Client-IP"].strip()[:64]
+        client_ip = request.headers.get("X-Hive-Client-IP") or request.headers.get("X-Pulse-Client-IP")
+        if self.via_proxy(request) and client_ip:
+            return client_ip.strip()[:64]
         if self.s.dashboard_trust_proxy:
             for h in ("CF-Connecting-IP", "X-Real-IP"):
                 if request.headers.get(h):
@@ -335,7 +337,7 @@ class DashboardServer:
     async def access(self, sess: dict, guild_id: int) -> tuple[object, set[str]]:
         guild = self.bot.get_guild(guild_id)
         if guild is None:
-            raise ApiError(404, "Pulse Dispatch is not in that server.")
+            raise ApiError(404, "Hive Dispatch is not in that server.")
         m = await self.member(guild, int(sess["user_id"]))
         if m is None:
             raise ApiError(403, "You are not a member of that server.")

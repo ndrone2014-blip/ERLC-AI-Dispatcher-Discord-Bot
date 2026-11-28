@@ -25,7 +25,7 @@ if defined NGROK_URL (
     tasklist /fi "imagename eq ngrok.exe" | find /i "ngrok.exe" >nul
     if errorlevel 1 (
       echo Starting the ngrok tunnel for the dashboard: https://%NGROK_URL%
-      start "Pulse Dispatch tunnel (ngrok) - keep open" ngrok http --url=%NGROK_URL% %DASHBOARD_PORT%
+      start "Hive Dispatch tunnel (ngrok) - keep open" ngrok http --url=%NGROK_URL% %DASHBOARD_PORT%
     ) else (
       echo ngrok is already running.
     )

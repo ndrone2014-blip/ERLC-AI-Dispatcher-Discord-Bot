@@ -70,7 +70,7 @@ class SessionService:
         if s.get("department"):
             fields.append({"name": "Department", "value": s["department"], "inline": True})
         out = {"title": f"{headline} · {s['name']}", "description": s.get("description") or None, "color": colour,
-               "fields": fields, "footer": {"text": f"Session #{s['number']} • Pulse Dispatch | ERLC"}, "timestamp": iso_now()}
+               "fields": fields, "footer": {"text": f"Session #{s['number']} • Hive Dispatch | ERLC"}, "timestamp": iso_now()}
         if s["status"] in {"scheduled", "active"}:
             out["_session"] = s["number"]  # the Discord layer adds Join / Leave buttons
         return out

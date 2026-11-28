@@ -20,7 +20,7 @@ WARN = 0xD29922
 DANGER = 0xDA3633
 MUTED = 0x6E7681
 PRIORITY_COLOUR = {"low": 0x8B949E, "routine": 0x1F6FEB, "medium": 0xD29922, "high": 0xF0883E, "critical": 0xDA3633}
-FOOTER = "Pulse Dispatch | ERLC"
+FOOTER = "Hive Dispatch | ERLC"
 
 
 def bot_of(interaction: discord.Interaction) -> "DispatchBot":

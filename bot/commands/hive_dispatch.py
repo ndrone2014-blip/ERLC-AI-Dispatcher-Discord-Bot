@@ -48,7 +48,7 @@ class ConfirmView(discord.ui.View):
         await interaction.response.edit_message(content="Cancelled.", embed=None, view=None)
 
 
-class PulseDispatchCog(commands.Cog):
+class HiveDispatchCog(commands.Cog):
     def __init__(self, bot: "DispatchBot"):
         self.bot = bot
 
@@ -214,4 +214,4 @@ class PulseDispatchCog(commands.Cog):
 
 
 async def setup(bot: "DispatchBot"):
-    await bot.add_cog(PulseDispatchCog(bot))
+    await bot.add_cog(HiveDispatchCog(bot))

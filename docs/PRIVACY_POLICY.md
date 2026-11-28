@@ -1,11 +1,11 @@
-# Privacy Policy: Pulse Dispatch | ERLC
+# Privacy Policy: Hive Dispatch | ERLC
 
 **Effective date:** November 27, 2026
 **Last updated:** November 27, 2026
 
-This Privacy Policy explains what information **Pulse Dispatch | ERLC** ("Pulse Dispatch", "the Bot", "we", "us") collects, how it is used, and the choices you have. It covers the Discord bot and its web dashboard at **pulsedispatchpanel.netlify.app** (together, "the Service").
+This Privacy Policy explains what information **Hive Dispatch | ERLC** ("Hive Dispatch", "the Bot", "we", "us") collects, how it is used, and the choices you have. It covers the Discord bot and its web dashboard at **pulsedispatchpanel.netlify.app** (together, "the Service").
 
-Pulse Dispatch is developed by **Drone Hive Studios** (Developer: @ndrone40). It is a free hobby project with no paid tiers.
+Hive Dispatch is developed by **Drone Hive Studios** (Developer: @ndrone40). It is a free hobby project with no paid tiers.
 
 By adding the Bot to a server, using its commands, joining a voice channel it is in, or signing in to the dashboard, you agree to this Privacy Policy.
 
@@ -136,6 +136,6 @@ Discord: **@ndrone40**
 
 ---
 
-*Pulse Dispatch | ERLC is not affiliated with, endorsed by, or sponsored by Discord Inc., Roblox Corporation, or Police Roleplay Community (ER:LC).*
+*Hive Dispatch | ERLC is not affiliated with, endorsed by, or sponsored by Discord Inc., Roblox Corporation, or Police Roleplay Community (ER:LC).*
 
 Developed by Drone Hive Studios | Developer @ndrone40

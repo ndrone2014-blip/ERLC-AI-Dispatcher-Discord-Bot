@@ -67,8 +67,8 @@ def test_embed_validation_limits():
 
 
 def test_verification_code_matching_ignores_formatting():
-    assert code_in_text("pulse amber falcon river", "Hi!\nPULSE  amber, falcon - river :)")
-    assert not code_in_text("pulse amber falcon river", "pulse amber river falcon")
+    assert code_in_text("hive amber falcon river", "Hi!\nHIVE  amber, falcon - river :)")
+    assert not code_in_text("hive amber falcon river", "hive amber river falcon")
 
 
 @pytest.mark.parametrize("text", ["Can you show active calls?", "What calls are currently open?", "Display the active incidents.",
@@ -109,7 +109,7 @@ async def test_profile_code_verification_end_to_end(platform):
     await p.verification.update_settings(GUILD, {"verified_role_id": 900, "unverified_role_id": 901,
                                                  "nickname_format": "{display} (@{roblox})"}, actor_id=1)
     start = await p.verification.start_profile(GUILD, 10, "BuilderBob")
-    assert start["code"].startswith("pulse ")
+    assert start["code"].startswith("hive ")
     # code not in the profile yet -> honest failure, nothing linked
     with pytest.raises(ServiceError):
         await p.verification.check_profile(GUILD, 10)

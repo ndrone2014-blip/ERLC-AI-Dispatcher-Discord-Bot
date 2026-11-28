@@ -1,8 +1,18 @@
 # Changelog
 
-## 🚀 Pulse Dispatch | ERLC — Platform Overhaul · v5.0.0 (2026-11-27)
+## 🐝 Hive Dispatch | ERLC — Rename · v5.0.1 (2026-11-27)
 
-Pulse Dispatch becomes a complete ER:LC management platform. **Everything from v4 keeps working**: settings, data,
+Pulse Dispatch | ERLC is now **Hive Dispatch | ERLC**. Same bot, same logo, same data and settings.
+- New name everywhere: embeds and footers, `/help`, `/bot-info`, the guide, the dashboard, sign-in pages and docs.
+- The assistant is now **Hive** (`/ask`, "Ask Hive" in the dashboard). New verification codes start with `hive`;
+  codes handed out before the update still work.
+- `/logs create` now suggests `#hive-logs`. An existing `#pulse-logs` channel keeps working, rename it if you like.
+- Netlify: the environment variables are now `HIVE_BOT_URL` and `HIVE_PROXY_SECRET`. The old `PULSE_*` names keep
+  working, so nothing breaks if you don't change them.
+
+## 🚀 Hive Dispatch | ERLC — Platform Overhaul · v5.0.0 (2026-11-27)
+
+Hive Dispatch becomes a complete ER:LC management platform. **Everything from v4 keeps working**: settings, data,
 commands and integrations are preserved. New tables are added automatically on first start (migration `005_platform.sql`
 only adds tables and columns). Still **100% free**: no premium tiers, no paid unlocks, no artificial limits.
 
@@ -90,9 +100,9 @@ only adds tables and columns). Still **100% free**: no premium tiers, no paid un
 - Live updates fall back to refreshing every 20 seconds if a host cuts the connection.
 - Guide: **docs/NETLIFY.md**.
 
-## 🖥️ Pulse Dispatch | ERLC — Command Center Update · v4.0.0 (2026-11-27)
+## 🖥️ Hive Dispatch | ERLC — Command Center Update · v4.0.0 (2026-11-27)
 
-The biggest update yet: Pulse Dispatch grows from a dispatch bot into a full ER:LC community platform with a web
+The biggest update yet: Hive Dispatch grows from a dispatch bot into a full ER:LC community platform with a web
 dashboard. **Everything from v3 keeps working** (settings, panels, incidents, units, keys and commands). New database
 tables are added automatically on first start.
 
@@ -111,7 +121,7 @@ tables are added automatically on first start.
   moderation, automations, scheduled messages, log viewer with CSV export, audit log, log routing, embed builder with
   live preview, welcome/leave messages, announcements, slash command list, appearance, AI providers (write-only keys),
   dispatcher personality, AI usage, channels, ER:LC key, permissions matrix, notifications, integration status, sessions.
-- Notifications bell, **Ask Pulse**, light/dark mode, searchable collapsible navigation, mobile layout
+- Notifications bell, **Ask Hive**, light/dark mode, searchable collapsible navigation, mobile layout
   (tables become cards), keyboard accessible, reduced-motion aware. A red/blue light bar pulses during critical incidents.
 - Security: HttpOnly hashed sessions, CSRF tokens + origin checks, strict CSP, rate limits, write-only secrets,
   per-server isolation, audit logging.
@@ -147,7 +157,7 @@ tables are added automatically on first start.
 - Central notifications with per-permission visibility, read/unread state, dedupe and optional Discord channels.
 - Embed templates with Discord's limits enforced, link buttons, 8 presets; welcome/leave messages with auto-roles.
 
-### 🧠 Pulse Assistant (`/ask` and "Ask Pulse")
+### 🧠 Hive Assistant (`/ask` and "Ask Hive")
 - Recognises intents in any phrasing ("show active calls", "are there any incidents right now?", "who's on shift?",
   "start my shift", "am I verified?") and answers from live data in under a millisecond — no AI request.
 - Respects the asker's permissions; actions (close incident, start/end shift) always ask for confirmation.
@@ -194,7 +204,7 @@ tables are added automatically on first start.
   (no wake word), dropped (too busy), echo ignored and the last thing heard.
 - **Listening can't silently die** from one bad voice packet any more (busy calls produce more of them).
 
-## 🦃 Pulse Dispatch | ERLC — Thanksgiving Update · v3.0.0 (2026-11-26)
+## 🦃 Hive Dispatch | ERLC — Thanksgiving Update · v3.0.0 (2026-11-26)
 
 A major upgrade focused on speed, understanding, free AI, professional logging and a realistic dispatch experience.
 Everything that worked before still works: existing settings, panels, incidents, units, keys and commands are kept.
@@ -238,9 +248,9 @@ Everything that worked before still works: existing settings, panels, incidents,
 ### 📋 Professional logging
 - 14 event types: 911 calls, incidents, AI responses, unit assignments, status changes, backup requests, priority changes,
   BOLOs, closures, failed dispatch requests, administrative changes, AI provider failures, radio traffic, ER:LC connection.
-- Choose an existing channel or auto-create a private `#pulse-logs`; enable/disable each type; route types to their own channels.
+- Choose an existing channel or auto-create a private `#hive-logs`; enable/disable each type; route types to their own channels.
 - Every record is stored, so `/logs view` works even without a log channel.
-- All dispatch messages and logs are clean, colour-coded embeds with timestamps and the *Pulse Dispatch | ERLC* footer.
+- All dispatch messages and logs are clean, colour-coded embeds with timestamps and the *Hive Dispatch | ERLC* footer.
 
 ### 🎙️ Realistic dispatch
 - Varied, professional radio phrasing that never repeats the same sentence back-to-back, built only from real incident facts.

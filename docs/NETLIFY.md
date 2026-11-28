@@ -1,12 +1,12 @@
-# 🌐 Hosting the Pulse Dispatch dashboard on Netlify
+# 🌐 Hosting the Hive Dispatch dashboard on Netlify
 
-Netlify hosts the dashboard's **pages** at an address like `https://pulse-dispatch.netlify.app`. The bot and its
+Netlify hosts the dashboard's **pages** at an address like `https://hive-dispatch.netlify.app`. The bot and its
 database still run on your PC, because that's where your dispatch data lives. A tiny Netlify edge function
-(`web/netlify/edge-functions/pulse-proxy.js`) forwards sign-in and data requests to the bot through a free
+(`web/netlify/edge-functions/hive-proxy.js`) forwards sign-in and data requests to the bot through a free
 **tunnel**, so for your staff it's all one address.
 
 ```
-Staff browser ──► https://pulse-dispatch.netlify.app ──(edge function)──► tunnel ──► bot on your PC (port 8080)
+Staff browser ──► https://hive-dispatch.netlify.app ──(edge function)──► tunnel ──► bot on your PC (port 8080)
                     pages served by Netlify               adds secret + visitor IP       database, Discord
 ```
 
@@ -49,11 +49,13 @@ Copy the result. This proves to the bot that requests really come from your Netl
 
    | Key | Value |
    |---|---|
-   | `PULSE_BOT_URL` | your tunnel address, e.g. `https://something.ngrok-free.app` |
-   | `PULSE_PROXY_SECRET` | the secret from step 2 |
+   | `HIVE_BOT_URL` | your tunnel address, e.g. `https://something.ngrok-free.app` |
+   | `HIVE_PROXY_SECRET` | the secret from step 2 |
+
+   Sites set up before the rename may still use `PULSE_BOT_URL` / `PULSE_PROXY_SECRET`; those names keep working.
 
 4. **Deploy**. Optionally rename the site (**Project configuration → Change project name**) to get
-   `https://pulse-dispatch.netlify.app` or similar. Your **dashboard address** is that Netlify URL.
+   `https://hive-dispatch.netlify.app` or similar. Your **dashboard address** is that Netlify URL.
 
 > Changed an environment variable later? Netlify only picks it up after a new deploy: **Deploys → Trigger deploy**.
 
@@ -61,8 +63,8 @@ Copy the result. This proves to the bot that requests really come from your Netl
 
 In the bot's `.env`:
 ```
-DASHBOARD_PUBLIC_URL=https://pulse-dispatch.netlify.app
-DASHBOARD_PROXY_SECRET=the-same-secret-as-PULSE_PROXY_SECRET
+DASHBOARD_PUBLIC_URL=https://hive-dispatch.netlify.app
+DASHBOARD_PROXY_SECRET=the-same-secret-as-HIVE_PROXY_SECRET
 DISCORD_CLIENT_SECRET=your-discord-oauth-client-secret
 ```
 (No slash at the end of the URL. `DASHBOARD_HOST` stays `127.0.0.1`: the tunnel connects on the same PC.)
@@ -71,7 +73,7 @@ DISCORD_CLIENT_SECRET=your-discord-oauth-client-secret
 
 Discord Developer Portal → your app → **OAuth2**:
 * **Client Secret**: Reset Secret if you haven't yet; it goes in `.env` as `DISCORD_CLIENT_SECRET`.
-* **Redirects** → **Add Redirect** → `https://pulse-dispatch.netlify.app/auth/callback` → **Save Changes**.
+* **Redirects** → **Add Redirect** → `https://hive-dispatch.netlify.app/auth/callback` → **Save Changes**.
 
 ## Step 6: Restart the bot
 
@@ -90,7 +92,7 @@ its own window every time you start the bot. Keep that window open.
 
 ## Roblox "Sign in with Roblox" on Netlify
 
-Use the Netlify address for the Roblox redirect URL: `https://pulse-dispatch.netlify.app/auth/roblox/callback`
+Use the Netlify address for the Roblox redirect URL: `https://hive-dispatch.netlify.app/auth/roblox/callback`
 (see [ROBLOX_VERIFICATION.md](ROBLOX_VERIFICATION.md)).
 
 ## Security notes
@@ -106,11 +108,11 @@ Use the Netlify address for the Roblox redirect URL: `https://pulse-dispatch.net
 
 | Problem | Fix |
 |---|---|
-| "The dashboard isn't connected to the bot yet" | Add `PULSE_BOT_URL` in Netlify and redeploy. |
+| "The dashboard isn't connected to the bot yet" | Add `HIVE_BOT_URL` in Netlify and redeploy. |
 | "The tunnel (ngrok) isn't running" | Start ngrok again on the bot's PC (or set `NGROK_URL` in `.env` so `start.bat` does it). |
 | "The tunnel is running but the bot's dashboard isn't answering" | The bot isn't running, or its dashboard failed to start — the bot's console says why. Check the port matches (default 8080). |
-| "Can't reach the bot" | Start the bot **and** ngrok; check `PULSE_BOT_URL` matches your ngrok domain exactly. |
-| "Open the dashboard through its Netlify address" | `PULSE_PROXY_SECRET` (Netlify) and `DASHBOARD_PROXY_SECRET` (`.env`) don't match. Fix, redeploy, restart. |
+| "Can't reach the bot" | Start the bot **and** ngrok; check `HIVE_BOT_URL` matches your ngrok domain exactly. |
+| "Open the dashboard through its Netlify address" | `HIVE_PROXY_SECRET` (Netlify) and `DASHBOARD_PROXY_SECRET` (`.env`) don't match. Fix, redeploy, restart. |
 | "Discord did not accept the sign-in" | The Discord redirect must be exactly `https://YOUR-SITE.netlify.app/auth/callback`, and `DASHBOARD_PUBLIC_URL` must be your Netlify URL. |
 | Sign-in loops back to the sign-in page | `DASHBOARD_PUBLIC_URL` must start with `https://`. Clear the site's cookies and try again. |
 | Live updates seem slow | If Netlify cuts the live-update connection, the dashboard automatically refreshes every 20 seconds instead. |
@@ -121,9 +123,9 @@ If you have a domain on Cloudflare, a named tunnel works the same way:
 ```bat
 winget install --id Cloudflare.cloudflared
 cloudflared tunnel login
-cloudflared tunnel create pulse
-cloudflared tunnel route dns pulse bot.yourdomain.com
-cloudflared tunnel run --url http://localhost:8080 pulse
+cloudflared tunnel create hive
+cloudflared tunnel route dns hive bot.yourdomain.com
+cloudflared tunnel run --url http://localhost:8080 hive
 ```
-Then use `https://bot.yourdomain.com` as `PULSE_BOT_URL`. Avoid "quick" tunnels with a new random address on every
-start: you'd have to change `PULSE_BOT_URL` and redeploy each time.
+Then use `https://bot.yourdomain.com` as `HIVE_BOT_URL`. Avoid "quick" tunnels with a new random address on every
+start: you'd have to change `HIVE_BOT_URL` and redeploy each time.

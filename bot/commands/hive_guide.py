@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 # page key -> (menu label, emoji, title, [(field name, field text)])
 PAGES: dict[str, tuple[str, str, str, list[tuple[str, str]]]] = {
-    "start": ("Start here", "🧭", "Pulse Dispatch Setup Guide", [
+    "start": ("Start here", "🧭", "Hive Dispatch Setup Guide", [
         ("What you'll do", "1. Choose your dashboards (optional)\n2. Connect your ER:LC server (API key)\n"
                            "3. Map your Discord roles\n4. Add a free AI key (optional)\n5. Register units\n6. Choose what is logged"),
         ("How to use this guide", "Pick a step from the menu below. The buttons open the right form for you "
@@ -38,7 +38,7 @@ PAGES: dict[str, tuple[str, str, str, list[tuple[str, str]]]] = {
                                        "**Upgrade Packs** → **API Pack**. Only the server owner can buy it."),
         ("2. Copy your server key", "Join your private server → **Server Info** → **Edit Server Settings** → scroll to "
                                     "**ER:LC API** → **Edit** → copy the **Server Key**. Treat it like a password."),
-        ("3. Give it to Pulse Dispatch", "Press **Set ER:LC API Key** below (or run `/settings erlc-key`) and paste it. "
+        ("3. Give it to Hive Dispatch", "Press **Set ER:LC API Key** below (or run `/settings erlc-key`) and paste it. "
                                          "The key is tested before it is saved and stored encrypted.\n"
                                          "Bot owners can also put `ERLC_SERVER_KEY=` in `.env`."),
         ("4. Check it", "`/erlc` should show 🟢. Make an in-game 911 call — it appears as an **API-VERIFIED** incident."),
@@ -53,7 +53,7 @@ PAGES: dict[str, tuple[str, str, str, list[tuple[str, str]]]] = {
         ("Fine-tune", "`/permissions view` — current mapping\n`/permissions set` — change who can use one permission"),
     ]),
     "ai": ("AI keys (optional)", "🧠", "Step 4 · Free AI (optional)", [
-        ("Do I need AI?", "No. Pulse Dispatch understands plain language on its own. AI adds deeper understanding and "
+        ("Do I need AI?", "No. Hive Dispatch understands plain language on its own. AI adds deeper understanding and "
                           "assessments."),
         ("Free providers", "Groq · Cerebras · Google Gemini · OpenRouter · Mistral · SambaNova · NVIDIA · GitHub Models · "
                            "Cloudflare\n`/ai-provider list` — links and limits\n`/ai-provider guide` — step-by-step for one"),
@@ -71,7 +71,7 @@ PAGES: dict[str, tuple[str, str, str, list[tuple[str, str]]]] = {
         ("Try it", "`/test call` creates a clearly labelled **TEST DATA** call through the whole pipeline."),
     ]),
     "logs": ("Logging", "📋", "Step 6 · Logging", [
-        ("Where logs go", "`/logs channel` — use an existing channel\n`/logs create` — make a private `#pulse-logs`\n"
+        ("Where logs go", "`/logs channel` — use an existing channel\n`/logs create` — make a private `#hive-logs`\n"
                           "`/logs route` — send one event type to its own channel"),
         ("What is logged", "`/logs settings` — tick the events you want (911 calls, assignments, status changes, "
                            "priority changes, BOLOs, closures, AI issues, ER:LC connection, admin changes…)"),
@@ -136,7 +136,7 @@ class GuideView(discord.ui.View):
         await reply(interaction, embed=_preset_embed(), view=PresetPicker(interaction.client.get_cog("SetupCog"), True))
 
 
-class PulseGuideCog(commands.Cog):
+class HiveGuideCog(commands.Cog):
     def __init__(self, bot: "DispatchBot"):
         self.bot = bot
 
@@ -150,4 +150,4 @@ class PulseGuideCog(commands.Cog):
 
 
 async def setup(bot: "DispatchBot"):
-    await bot.add_cog(PulseGuideCog(bot))
+    await bot.add_cog(HiveGuideCog(bot))

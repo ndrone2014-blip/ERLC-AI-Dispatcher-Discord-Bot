@@ -1,4 +1,4 @@
-/* Pulse Dispatch dashboard — staff, moderation, automation, logging, bot, AI and settings pages. */
+/* Hive Dispatch dashboard — staff, moderation, automation, logging, bot, AI and settings pages. */
 "use strict";
 
 // ============================================================================ STAFF
@@ -267,7 +267,7 @@ page("logs", "Log viewer", async (el) => {
   const since = h("input", { type: "date", "aria-label": "From", onchange: (e) => { q.since = e.target.value; q.page = 1; load(); } });
   const until = h("input", { type: "date", "aria-label": "Until", onchange: (e) => { q.until = e.target.value ? new Date(new Date(e.target.value).getTime() + 86400000).toISOString().slice(0, 10) : ""; q.page = 1; load(); } });
   const exp = can("logs.export") ? h("button", { class: "btn", onclick: () => { location.href = `/api/g/${S.gid}/logs/export.csv?${new URLSearchParams(q)}`; } }, "Export CSV") : null;
-  clear(el, head("Log viewer", "Everything Pulse Dispatch records. Secrets and keys are never logged.", exp),
+  clear(el, head("Log viewer", "Everything Hive Dispatch records. Secrets and keys are never logged.", exp),
     h("div", { class: "filters" }, h("input", { type: "search", placeholder: "Search events", oninput: debounce((e) => { q.q = e.target.value; q.page = 1; load(); }, 300) }), catSel, since, until), out);
   await load();
   S.refresh = load;
@@ -400,8 +400,8 @@ page("commands", "Slash commands", async (el) => {
 });
 page("bot/appearance", "Appearance", async (el) => {
   const a = await api("/bot/appearance");
-  clear(el, head("Appearance", "How Pulse Dispatch's Discord messages look."),
-    settingsPanel("Discord embeds", [{ key: "accent", label: "Accent colour", type: "color" }, { key: "footer_note", label: "Footer note", max: 60, help: "Shown after 'Pulse Dispatch | ERLC'." },
+  clear(el, head("Appearance", "How Hive Dispatch's Discord messages look."),
+    settingsPanel("Discord embeds", [{ key: "accent", label: "Accent colour", type: "color" }, { key: "footer_note", label: "Footer note", max: 60, help: "Shown after 'Hive Dispatch | ERLC'." },
       { key: "compact", label: "Compact messages", type: "check" }, { key: "show_thumbnails", label: "Show thumbnails", type: "check" }], { ...a, accent: a.accent_hex },
       (v) => api("/bot/appearance", { method: "PUT", body: v })));
 });
@@ -417,7 +417,7 @@ page("ai", "AI providers", async (el) => {
       actions: [{ label: "Cancel" }, { label: "Save & test", primary: true, onClick: async () => { const r = await act(() => api(`/ai/providers/${p.provider}/key`, { method: "POST", body: f.get() }));
         toast(r.test_ok ? `Key saved — ${r.message}` : `Key saved, but the test failed: ${r.message}`, !r.test_ok); renderPage("ai"); } }] });
   };
-  clear(el, head("AI providers", "Pulse answers most things locally. AI providers are only used for conversation and incident assessment."),
+  clear(el, head("AI providers", "Hive answers most things locally. AI providers are only used for conversation and incident assessment."),
     h("div", { class: "panels" },
       h("div", { class: "span-4" }, settingsPanel("Selection", [{ key: "mode", label: "Mode", type: "select", options: { auto: "Automatic — healthiest free provider first", manual: "Manual — use my order" } },
         { key: "failover", label: "Automatic failover", type: "check", help: "Try the next provider when one fails." },

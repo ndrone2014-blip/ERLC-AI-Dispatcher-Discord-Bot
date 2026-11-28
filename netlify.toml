@@ -1,10 +1,10 @@
-# Pulse Dispatch | ERLC — web dashboard on Netlify. Guide: docs/NETLIFY.md
+# Hive Dispatch | ERLC — web dashboard on Netlify. Guide: docs/NETLIFY.md
 #
 # Netlify serves the dashboard pages; the edge function in web/netlify/edge-functions/ forwards sign-in and
 # data requests to the bot running on your PC (through a tunnel). Set these in Netlify → Site configuration →
 # Environment variables:
-#   PULSE_BOT_URL       your tunnel address, e.g. https://your-name.ngrok-free.app
-#   PULSE_PROXY_SECRET  a long random value; put the same value in the bot's .env as DASHBOARD_PROXY_SECRET
+#   HIVE_BOT_URL       your tunnel address, e.g. https://your-name.ngrok-free.app
+#   HIVE_PROXY_SECRET  a long random value; put the same value in the bot's .env as DASHBOARD_PROXY_SECRET
 
 [build]
   # Only the web/ folder is deployed (so Netlify doesn't try to install the bot's Python packages).

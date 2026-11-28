@@ -59,7 +59,7 @@ HELP_SECTIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
         ("/apply · /application list|review|note|respond|mine|preset|toggle", "Applications and reviews"),
         ("/session create|start|end|list|join", "Community sessions with reminders"),
         ("/announcement", "Send text or a saved embed template"),
-        ("/ask", "Ask Pulse: active calls, units, shifts, sessions, verification…"),
+        ("/ask", "Ask Hive: active calls, units, shifts, sessions, verification…"),
     ]),
     "staff": ("🧑‍✈️ Staff & Moderation", [
         ("/staff add|promote|demote|remove|info|list|note|leave", "Staff team management"),
@@ -69,7 +69,7 @@ HELP_SECTIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
         ("/report-member", "Privately report a member to moderators"),
     ]),
     "info": ("ℹ️ Information", [
-        ("/help", "This menu"), ("/about", "About Pulse Dispatch"), ("/statistics", "Dispatch statistics"),
+        ("/help", "This menu"), ("/about", "About Hive Dispatch"), ("/statistics", "Dispatch statistics"),
         ("/ping", "Latency check"), ("/version", "Version and release notes"),
         ("/server-info · /bot-info", "Server overview and bot status"),
         ("/dashboard web", "Link to the web dashboard"),
@@ -87,7 +87,7 @@ def help_embed(section: str, look: E.Look) -> discord.Embed:
             "New here? Run **`/setup-guide`**. Pick a category below for every command."))
         for key, (title, items) in HELP_SECTIONS.items():
             e.add_field(name=title, value=f"{len(items)} commands", inline=True)
-        e.add_field(name="Roleplay only", value="Pulse Dispatch is part of a roleplay community — not a real emergency service.",
+        e.add_field(name="Roleplay only", value="Hive Dispatch is part of a roleplay community — not a real emergency service.",
                     inline=False)
         return e
     title, items = HELP_SECTIONS[section]
@@ -143,11 +143,11 @@ def _fmt_secs(v) -> str:
     return f"{v:.0f} s" if v < 90 else f"{v / 60:.1f} min"
 
 
-class PulseInfoCog(commands.Cog):
+class HiveInfoCog(commands.Cog):
     def __init__(self, bot: "DispatchBot"):
         self.bot = bot
 
-    @app_commands.command(name="about", description="About Pulse Dispatch | ERLC")
+    @app_commands.command(name="about", description="About Hive Dispatch | ERLC")
     async def about(self, interaction: discord.Interaction):
         look = await E.look_for(self.bot, interaction.guild_id)
         e = E.base(f"📡 {NAME}", look=look, url=REPO_URL, description=(
@@ -219,4 +219,4 @@ class PulseInfoCog(commands.Cog):
 
 
 async def setup(bot: "DispatchBot"):
-    await bot.add_cog(PulseInfoCog(bot))
+    await bot.add_cog(HiveInfoCog(bot))

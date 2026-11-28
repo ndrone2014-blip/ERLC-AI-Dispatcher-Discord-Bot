@@ -118,7 +118,7 @@ class ModerationService:
             if s.get("appeal_info") and action in {"ban", "kick"}:
                 desc += f"\n\n{s['appeal_info']}"
             err = await self.p.actions.dm(target_id, embed={"title": f"{ACTION_ICON[action]} Moderation notice", "description": desc,
-                                                            "color": ACTION_COLOUR[action], "footer": {"text": "Pulse Dispatch | ERLC"}})
+                                                            "color": ACTION_COLOUR[action], "footer": {"text": "Hive Dispatch | ERLC"}})
             dm_note = "DM not delivered" if err else "DM delivered"
 
         audit_reason = f"{reason} — by {moderator_id}"[:500]

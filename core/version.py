@@ -1,6 +1,6 @@
 """Release information."""
-NAME = "Pulse Dispatch | ERLC"
-VERSION = "5.0.0"
+NAME = "Hive Dispatch | ERLC"
+VERSION = "5.0.1"
 RELEASE = "Platform Overhaul"
 RELEASE_DATE = "2026-11-27"
 REPO_URL = "https://github.com/ndrone2014-blip/ERLC-AI-Dispatcher-Discord-Bot"

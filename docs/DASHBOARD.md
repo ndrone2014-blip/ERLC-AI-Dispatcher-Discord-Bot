@@ -1,4 +1,4 @@
-# 🖥️ Pulse Dispatch Web Dashboard (v4.0)
+# 🖥️ Hive Dispatch Web Dashboard (v4.0)
 
 The dashboard is a website that the bot serves **itself**. There is nothing extra to install or host: when the
 bot is running, the dashboard is running. Because the website and the bot share one database and one event bus,
@@ -9,7 +9,7 @@ the dashboard within a second.
 
 ## 1. Quick start: this PC only (about 5 minutes)
 
-1. Open the [Discord Developer Portal](https://discord.com/developers/applications) → your Pulse Dispatch
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications) → your Hive Dispatch
    application → **OAuth2**.
 2. Under **Client Secret**, press **Reset Secret** and copy it.
 3. Under **Redirects**, press **Add Redirect** and enter exactly:
@@ -64,9 +64,9 @@ a free service that gives your PC a public HTTPS address without opening ports o
 ```bat
 winget install --id Cloudflare.cloudflared
 cloudflared tunnel login
-cloudflared tunnel create pulse
-cloudflared tunnel route dns pulse dashboard.yourdomain.com
-cloudflared tunnel run --url http://localhost:8080 pulse
+cloudflared tunnel create hive
+cloudflared tunnel route dns hive dashboard.yourdomain.com
+cloudflared tunnel run --url http://localhost:8080 hive
 ```
 
 Keep the last command running while the bot runs (or install it as a service: `cloudflared service install`).
@@ -112,7 +112,7 @@ ngrok http --url=your-name.ngrok-free.app 8080
 | Community | Members, Roblox verification, applications, sessions, announcements |
 | Automation · Logging · Bot · AI · Settings | As before (automations, schedules, log viewer, audit log, embed builder, AI providers, permissions, …) |
 
-Top bar: breadcrumbs, **search / command palette** (Ctrl K or ⌘K, or press `/`), live-update indicator, **Ask Pulse**
+Top bar: breadcrumbs, **search / command palette** (Ctrl K or ⌘K, or press `/`), live-update indicator, **Ask Hive**
 and the **notification center**. The dashboard is dark mode only. The red/blue light bar at the very top pulses while a
 **critical** incident is open.
 

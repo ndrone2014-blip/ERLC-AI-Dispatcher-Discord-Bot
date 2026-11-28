@@ -13,7 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot import embeds as E
-from bot.commands.pulse_dispatch import ConfirmView
+from bot.commands.hive_dispatch import ConfirmView
 from bot.logbook import LOG_CATEGORIES
 from bot.ui import reply, require
 from database.models import DEPARTMENT_KINDS, PRIORITIES, PRIORITY_LABEL, discord_ts
@@ -99,26 +99,26 @@ class LogToggleView(discord.ui.View):
         return _picked
 
 
-class PulseAdminCog(commands.Cog):
+class HiveAdminCog(commands.Cog):
     def __init__(self, bot: "DispatchBot"):
         self.bot = bot
 
     # ================================================================== /settings
-    settings = app_commands.Group(name="settings", description="Pulse Dispatch server settings (administrators)", guild_only=True)
+    settings = app_commands.Group(name="settings", description="Hive Dispatch server settings (administrators)", guild_only=True)
 
     async def _set(self, interaction: discord.Interaction, key: str, value, label: str) -> None:
         await self.bot.core.set_setting(interaction.guild_id, key, value)
         await self.bot.audit.record(interaction.guild_id, interaction.user.id, f"settings.{key}", None, {"value": value})
         await reply(interaction, f"✅ {label}")
 
-    @settings.command(name="view", description="Show every Pulse Dispatch setting for this server")
+    @settings.command(name="view", description="Show every Hive Dispatch setting for this server")
     async def settings_view(self, interaction: discord.Interaction):
         if not await require(interaction, "admin.config"):
             return
         bot, gid = self.bot, interaction.guild_id
         core = bot.core
         look = await E.look_for(bot, gid)
-        e = E.base("⚙️ Pulse Dispatch Settings", look=look)
+        e = E.base("⚙️ Hive Dispatch Settings", look=look)
         dch = await bot.channel_for(gid, "dispatch_channel_id")
         lch = await bot.log_channel(gid)
         e.add_field(name="Dispatch", value=(
@@ -289,7 +289,7 @@ class PulseAdminCog(commands.Cog):
     dashboard = app_commands.Group(name="dashboard", description="Optional dashboards (panels) — enable only what you need",
                                    guild_only=True)
 
-    @dashboard.command(name="web", description="Open the Pulse Dispatch web dashboard")
+    @dashboard.command(name="web", description="Open the Hive Dispatch web dashboard")
     async def dashboard_web(self, interaction: discord.Interaction):
         web = self.bot.web
         url = self.bot.settings.dashboard_url
@@ -297,7 +297,7 @@ class PulseAdminCog(commands.Cog):
             return await reply(interaction, "The web dashboard is turned off or failed to start. The bot owner can enable it in `.env` "
                                             "(`DASHBOARD_ENABLED=true`) — see docs/DASHBOARD.md.", error=True)
         look = await E.look_for(self.bot, interaction.guild_id)
-        e = E.base("🖥️ Pulse Dispatch Dashboard", look=look, url=f"{url}/#/g/{interaction.guild_id}",
+        e = E.base("🖥️ Hive Dispatch Dashboard", look=look, url=f"{url}/#/g/{interaction.guild_id}",
                    description=f"Sign in with Discord at **{url}**.\nYou'll only see the sections your roles allow.")
         if not self.bot.settings.dashboard_public_url:
             e.add_field(name="Note", value="This address only works on the computer running the bot. To let staff open it from anywhere, "
@@ -400,8 +400,8 @@ class PulseAdminCog(commands.Cog):
         await self.bot.audit.record(interaction.guild_id, interaction.user.id, "logs.channel", f"#{channel.name}")
         await reply(interaction, f"📋 Logs will be posted in {channel.mention}.")
 
-    @logs.command(name="create", description="Create a dedicated private #pulse-logs channel")
-    async def logs_create(self, interaction: discord.Interaction, name: str = "pulse-logs"):
+    @logs.command(name="create", description="Create a dedicated private #hive-logs channel")
+    async def logs_create(self, interaction: discord.Interaction, name: str = "hive-logs"):
         if not await require(interaction, "admin.config"):
             return
         guild = interaction.guild
@@ -416,11 +416,11 @@ class PulseAdminCog(commands.Cog):
                 role = guild.get_role(rid)
                 if role:
                     overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
-        clean = re.sub(r"[^a-z0-9-]", "", name.lower().replace(" ", "-"))[:90] or "pulse-logs"
+        clean = re.sub(r"[^a-z0-9-]", "", name.lower().replace(" ", "-"))[:90] or "hive-logs"
         cat_id = await self.bot.db.get_config(guild.id, "private_category_id")
         cat = guild.get_channel(int(cat_id)) if cat_id else None
         ch = await guild.create_text_channel(clean, overwrites=overwrites, category=cat if isinstance(cat, discord.CategoryChannel) else None,
-                                             reason="Pulse Dispatch log channel")
+                                             reason="Hive Dispatch log channel")
         await self.bot.db.set_config(guild.id, "log_channel_id", ch.id)
         await self.bot.audit.record(guild.id, interaction.user.id, "logs.create", f"#{ch.name}")
         await interaction.followup.send(f"📋 Created {ch.mention} (staff only) and set it as the log channel.", ephemeral=True)
@@ -584,7 +584,7 @@ class PulseAdminCog(commands.Cog):
         await reply(interaction, f"`{permission}` → {', '.join(chosen) if chosen else 'default groups'}.")
 
     # ================================================================== /reset-settings
-    @app_commands.command(name="reset-settings", description="Reset this server's Pulse Dispatch settings (data is kept)")
+    @app_commands.command(name="reset-settings", description="Reset this server's Hive Dispatch settings (data is kept)")
     @app_commands.guild_only()
     @app_commands.choices(scope=[app_commands.Choice(name="Dispatch behaviour", value="dispatch"),
                                  app_commands.Choice(name="Logging", value="logging"),
@@ -623,4 +623,4 @@ class PulseAdminCog(commands.Cog):
 
 
 async def setup(bot: "DispatchBot"):
-    await bot.add_cog(PulseAdminCog(bot))
+    await bot.add_cog(HiveAdminCog(bot))

@@ -1,9 +1,9 @@
-# Terms of Service: Pulse Dispatch | ERLC
+# Terms of Service: Hive Dispatch | ERLC
 
 **Effective date:** November 27, 2026
 **Last updated:** November 27, 2026
 
-These Terms of Service ("Terms") are an agreement between you and **Drone Hive Studios** ("we", "us") for your use of **Pulse Dispatch | ERLC** ("Pulse Dispatch", "the Bot") and its web dashboard at **pulsedispatchpanel.netlify.app** (together, "the Service").
+These Terms of Service ("Terms") are an agreement between you and **Drone Hive Studios** ("we", "us") for your use of **Hive Dispatch | ERLC** ("Hive Dispatch", "the Bot") and its web dashboard at **pulsedispatchpanel.netlify.app** (together, "the Service").
 
 By adding the Bot to a server, using its commands or features, or signing in to the dashboard, you agree to these Terms and our [Privacy Policy](PRIVACY_POLICY.md). If you don't agree, don't use the Service.
 
@@ -19,9 +19,9 @@ By adding the Bot to a server, using its commands or features, or signing in to 
 
 ## 2. What the Service is
 
-Pulse Dispatch is a **free** Discord bot for Emergency Response: Liberty County (ER:LC) roleplay communities. It provides features such as AI dispatch, CAD/MDT-style tools, unit and shift tracking, incidents, BOLOs, Roblox verification, moderation, staff management, logging and a web dashboard.
+Hive Dispatch is a **free** Discord bot for Emergency Response: Liberty County (ER:LC) roleplay communities. It provides features such as AI dispatch, CAD/MDT-style tools, unit and shift tracking, incidents, BOLOs, Roblox verification, moderation, staff management, logging and a web dashboard.
 
-**Pulse Dispatch is for fictional roleplay only.** It is **not** a real emergency service.
+**Hive Dispatch is for fictional roleplay only.** It is **not** a real emergency service.
 
 > ⚠️ **In a real emergency, call 911 (or your local emergency number).** Never use the Bot to report real emergencies.
 
@@ -45,7 +45,7 @@ If you find a bug or security problem, please report it to us instead of using i
 
 ## 4. Server owner and staff responsibilities
 
-If you manage a server that uses Pulse Dispatch, you are responsible for:
+If you manage a server that uses Hive Dispatch, you are responsible for:
 - how you set up the Bot and which features you turn on;
 - the content your staff and members create with it (incidents, moderation cases, notes, applications and so on);
 - giving dashboard and staff permissions only to people you trust;
@@ -83,7 +83,7 @@ The Bot, its code, name, logo and dashboard design belong to Drone Hive Studios,
 
 You keep ownership of content you create with the Service. You give us permission to store, process and display that content only as needed to run the Service for you and your server.
 
-Discord, Roblox and Emergency Response: Liberty County are trademarks of their owners. **Pulse Dispatch is not affiliated with, endorsed by, or sponsored by Discord Inc., Roblox Corporation, or Police Roleplay Community.**
+Discord, Roblox and Emergency Response: Liberty County are trademarks of their owners. **Hive Dispatch is not affiliated with, endorsed by, or sponsored by Discord Inc., Roblox Corporation, or Police Roleplay Community.**
 
 ---
 

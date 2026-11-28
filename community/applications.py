@@ -229,7 +229,7 @@ class ApplicationService:
             embed = {"title": f"📝 Application #{number} · {form['name']}", "color": 0x8957E5,
                      "description": f"Submitted by <@{user_id}>.\nReview it on the dashboard or with `/application review {number}`.",
                      "fields": [{"name": a["question"][:256], "value": (a["answer"] or "—")[:1024], "inline": False} for a in clean[:10]],
-                     "footer": {"text": "Pulse Dispatch | ERLC • Applications"}, "timestamp": iso_now()}
+                     "footer": {"text": "Hive Dispatch | ERLC • Applications"}, "timestamp": iso_now()}
             await self.p.actions.send(guild_id, int(form["review_channel_id"]), embed=embed)
         await self.p.publish("application.submitted", guild_id, application_number=number, application_id=aid, form=form["name"],
                              user_id=int(user_id))
@@ -302,7 +302,7 @@ class ApplicationService:
                      "awaiting_response": "✉️ More information needed"}[status]
             desc = f"Your **{app['form_name']}** application (#{number}) was updated." + (f"\n\n**Reviewer note:** {reason}" if reason else "")
             if (err := await self.p.actions.dm(int(app["user_id"]), embed={"title": title, "description": desc, "color": colour,
-                                                                            "footer": {"text": "Pulse Dispatch | ERLC"}})):
+                                                                            "footer": {"text": "Hive Dispatch | ERLC"}})):
                 problems.append(f"Could not DM the applicant: {err}")
         await self.p.audit.record(guild_id, actor_id, "application.status", f"application:{number}", {"status": status})
         await self.p.log(guild_id, "applications", f"Application #{number} · {STATUSES[status]}",

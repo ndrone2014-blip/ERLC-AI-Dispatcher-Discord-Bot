@@ -60,7 +60,7 @@ METHOD_LABEL = {"profile_code": "Profile code", "oauth": "Roblox sign-in (OAuth)
 
 
 def new_code() -> str:
-    return "pulse " + " ".join(secrets.choice(WORDS) for _ in range(6))
+    return "hive " + " ".join(secrets.choice(WORDS) for _ in range(6))
 
 
 def _norm(text: str) -> str:
@@ -342,7 +342,7 @@ class VerificationService:
             await self.p.actions.dm(int(discord_id), embed={
                 "title": "✅ Roblox account verified", "color": 0x2EA043,
                 "description": f"Your Discord account is now linked to **{user.name}** on Roblox.",
-                "footer": {"text": "Pulse Dispatch | ERLC"}})
+                "footer": {"text": "Hive Dispatch | ERLC"}})
         return {"roblox": user.as_dict(), "method": method, "problems": problems}
 
     async def _apply_discord(self, guild_id: int, discord_id: int, roblox_name: str, display: str) -> list[str]:

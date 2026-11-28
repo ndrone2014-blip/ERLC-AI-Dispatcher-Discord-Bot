@@ -1,4 +1,4 @@
-"""Pulse Assistant: the AI dispatcher assistant behind /ask and the dashboard's "Ask Pulse" box.
+"""Hive Assistant: the AI dispatcher assistant behind /ask and the dashboard's "Ask Hive" box.
 
 Simple requests ("show active calls", "any units available?", "start my shift") are recognised
 locally in well under a millisecond and answered straight from the database: no AI request.
@@ -123,7 +123,7 @@ def recognise(text: str) -> Optional[Intent]:
         return Intent("my_history", 0.8)
     if "SERVER" in c:
         return Intent("server_info", 0.8)
-    if "STATUS" in c and ("bot" in words or "you" in words or "pulse" in words or len(words) <= 3):
+    if "STATUS" in c and ("bot" in words or "you" in words or "hive" in words or len(words) <= 3):
         return Intent("bot_status", 0.8)
     if "STATS" in c:
         return Intent("stats", 0.75)
@@ -149,7 +149,7 @@ class Reply:
 
 
 SYSTEM_PROMPT = (
-    "You are Pulse, the calm, professional dispatcher assistant of an Emergency Response: Liberty County (ER:LC) roleplay "
+    "You are Hive, the calm, professional dispatcher assistant of an Emergency Response: Liberty County (ER:LC) roleplay "
     "community on Discord. Answer in at most 4 short sentences. Use ONLY the facts in the SITUATION block. Never invent "
     "incidents, units, members, numbers or server information; if the answer is not in the facts, say plainly that you "
     "don't have that information and suggest the relevant command. Never claim you performed an action. This is roleplay, "
@@ -167,12 +167,12 @@ class Assistant:
             try:
                 reply = await self._answer(guild_id, user_id, permissions, intent)
             except ServiceError as e:
-                reply = Reply("Pulse", str(e), ok=False)
+                reply = Reply("Hive", str(e), ok=False)
             reply.intent = intent.name
         elif allow_ai and self.p.ai is not None:
             reply = await self._ai(guild_id, user_id, permissions, text)
         else:
-            reply = Reply("Pulse", "I couldn't match that to something I can look up. Try asking about active calls, available units, "
+            reply = Reply("Hive", "I couldn't match that to something I can look up. Try asking about active calls, available units, "
                                    "your shift, sessions or verification — or run `/help`.", source="none", ok=False)
         reply.latency_ms = (time.perf_counter() - t0) * 1000
         return reply
@@ -300,7 +300,7 @@ class Assistant:
             return Reply("ER:LC Server", f"**{row['server_name'] or 'ER:LC server'}** is connected.",
                          [f"Players: {row['current_players']}/{row['max_players']}", f"Last update: {row['last_success_at'] or '—'}"])
         if n == "bot_status":
-            return Reply("Pulse Status", "I'm online and answering. Use `/ping` for detailed latency.")
+            return Reply("Hive Status", "I'm online and answering. Use `/ping` for detailed latency.")
         if n == "stats":
             if "analytics.view" not in perms and "stats.view" not in perms:
                 return self._deny("statistics")
@@ -310,7 +310,7 @@ class Assistant:
             return Reply("What I can do", "Ask me things like:", [
                 "“Are there any active calls?” · “Show incident 104”", "“Which units are available?”", "“Who is on shift?” · “Start my shift”",
                 "“Am I verified?” · “Any sessions today?”", "Run `/help` for every command."])
-        return Reply("Pulse", "I couldn't answer that.", ok=False)
+        return Reply("Hive", "I couldn't answer that.", ok=False)
 
     async def _ai(self, g: int, uid: int, perms: set[str], text: str) -> Reply:
         facts = []
@@ -324,10 +324,10 @@ class Assistant:
         try:
             resp = await self.p.ai.generate(g, purpose="assistant", system=SYSTEM_PROMPT, prompt=prompt, max_tokens=220)
         except Exception:
-            return Reply("Pulse", "I couldn't match that to something I can look up, and no AI provider is available right now. "
+            return Reply("Hive", "I couldn't match that to something I can look up, and no AI provider is available right now. "
                                   "Try asking about active calls, units, shifts or sessions — or run `/help`.", source="none", ok=False)
         answer = getattr(resp, "text", None) or str(resp)
-        return Reply("Pulse", answer.strip()[:1500], source="ai")
+        return Reply("Hive", answer.strip()[:1500], source="ai")
 
     async def confirm(self, guild_id: int, user_id: int, permissions: set[str], action: str, args: dict[str, Any]) -> Reply:
         """Run an action the user confirmed. Permissions are checked again here."""
@@ -337,7 +337,7 @@ class Assistant:
             inc = await self.p.dispatch.incidents.get_by_number(guild_id, int(args.get("number", 0)))
             if not inc or inc["status"] == "closed":
                 return Reply("Close Incident", "That incident is not open.", ok=False)
-            await self.p.dispatch.incidents.close(inc["id"], user_id, "Closed via Pulse Assistant")
+            await self.p.dispatch.incidents.close(inc["id"], user_id, "Closed via Hive Assistant")
             return Reply("Close Incident", f"Incident #{inc['number']} closed.")
         if action == "shift_start":
             if "shift.self" not in permissions:
@@ -347,4 +347,4 @@ class Assistant:
         if action == "shift_end":
             s = await self.p.shifts.end(guild_id, user_id, user_id)
             return Reply("Shift Ended", f"Shift ended after {fmt_duration(s['duration_s'])}.")
-        return Reply("Pulse", "Unknown action.", ok=False)
+        return Reply("Hive", "Unknown action.", ok=False)

@@ -34,7 +34,7 @@ async def _check_callsign(bot: "DispatchBot", guild_id: int, callsign: str, depa
     return None
 
 
-class PulseUnitsCog(commands.Cog):
+class HiveUnitsCog(commands.Cog):
     def __init__(self, bot: "DispatchBot"):
         self.bot = bot
 
@@ -173,4 +173,4 @@ class PulseUnitsCog(commands.Cog):
 
 
 async def setup(bot: "DispatchBot"):
-    await bot.add_cog(PulseUnitsCog(bot))
+    await bot.add_cog(HiveUnitsCog(bot))

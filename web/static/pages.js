@@ -1,4 +1,4 @@
-/* Pulse Dispatch dashboard — pages. Loaded after app.js. */
+/* Hive Dispatch dashboard — pages. Loaded after app.js. */
 "use strict";
 
 // The dashboard and activity feed live in pages-v5.js (v5.0).
@@ -474,7 +474,7 @@ page("sessions", "Sessions", async (el) => {
         ? h("span", null, h("button", { class: "btn sm primary", onclick: async () => { await act(() => api(`/sessions/${s.number}/start`, { method: "POST" }), "Session started."); renderPage("sessions"); } }, "Start"), " ",
           h("button", { class: "btn sm", onclick: async () => { if (!(await confirmDialog("Cancel session?", s.name, "Cancel session"))) return; await act(() => api(`/sessions/${s.number}/end`, { method: "POST", body: {} }), "Session cancelled."); renderPage("sessions"); } }, "Cancel"))
         : s.status === "active" ? h("button", { class: "btn sm", onclick: async () => { await act(() => api(`/sessions/${s.number}/end`, { method: "POST", body: {} }), "Session ended."); renderPage("sessions"); } }, "End") : null }],
-      d.sessions, { empty: emptyState("No sessions yet", "Schedule one and Pulse announces it, reminds participants and tracks who joined.") }))),
+      d.sessions, { empty: emptyState("No sessions yet", "Schedule one and Hive announces it, reminds participants and tracks who joined.") }))),
       can("session.manage") ? h("div", { class: "span-4" }, settingsPanel("Session settings", [{ key: "announce_channel_id", label: "Announcement channel", type: "channel" },
         { key: "ping_role_id", label: "Role to ping on start and reminders", type: "role" }, { key: "default_reminder_minutes", label: "Default reminder (minutes)", type: "number", min: 0, max: 1440 }],
         d.settings, (v) => api("/sessions/settings", { method: "PUT", body: v }))) : null));

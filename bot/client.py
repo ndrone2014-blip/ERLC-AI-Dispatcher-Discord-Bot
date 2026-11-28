@@ -54,8 +54,8 @@ PANEL_MODULES = {
 }
 
 COGS = ["bot.commands.setup", "bot.commands.dispatch", "bot.commands.units", "bot.commands.records", "bot.commands.system",
-        "bot.commands.pulse_dispatch", "bot.commands.pulse_units", "bot.commands.pulse_admin", "bot.commands.pulse_ai",
-        "bot.commands.pulse_info", "bot.commands.pulse_guide",
+        "bot.commands.hive_dispatch", "bot.commands.hive_units", "bot.commands.hive_admin", "bot.commands.hive_ai",
+        "bot.commands.hive_info", "bot.commands.hive_guide",
         # v4.0 Command Center
         "bot.commands.community_members", "bot.commands.community_moderation", "bot.commands.community_staff",
         "bot.commands.community_applications", "bot.commands.community_assistant",

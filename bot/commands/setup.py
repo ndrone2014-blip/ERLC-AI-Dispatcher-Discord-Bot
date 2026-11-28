@@ -56,7 +56,7 @@ class SetupCog(commands.Cog):
 
     setup = app_commands.Group(name="setup", description="Configure the dispatch system", guild_only=True)
 
-    @setup.command(name="run", description="Set up Pulse Dispatch: choose Dispatch Only, + Logs, Full or Custom (safe to re-run)")
+    @setup.command(name="run", description="Set up Hive Dispatch: choose Dispatch Only, + Logs, Full or Custom (safe to re-run)")
     @app_commands.describe(mode="Which features to set up (leave empty to choose with buttons)",
                            create_channels="Create categories/channels (False = use this channel)")
     @app_commands.choices(mode=PRESET_CHOICES)
@@ -133,7 +133,7 @@ class SetupCog(commands.Cog):
                     continue
                 ch = discord.utils.get(cat.text_channels, name=name)
                 if ch is None:
-                    ch = await guild.create_text_channel(name, category=cat, reason="Pulse Dispatch setup")
+                    ch = await guild.create_text_channel(name, category=cat, reason="Hive Dispatch setup")
                     created.append(ch.mention)
                 for p in ps:
                     if p in panels:
@@ -148,14 +148,14 @@ class SetupCog(commands.Cog):
                     await self.bot.db.set_config(guild.id, "dispatch_channel_id", ch.id)
                     # Everyone may type here: this is where people talk to dispatch in plain language.
                     try:
-                        await ch.set_permissions(guild.default_role, send_messages=True, reason="Pulse Dispatch: natural-language channel")
+                        await ch.set_permissions(guild.default_role, send_messages=True, reason="Hive Dispatch: natural-language channel")
                         await ch.edit(topic="Talk to dispatch in plain language: describe an emergency and where it is, "
                                             "or (units) say things like 'show me 10-8'. Roleplay only.")
                     except discord.HTTPException:
                         pass
         radio = discord.utils.get(public_cat.voice_channels, name="📻 Dispatch Radio")
         if radio is None:
-            radio = await guild.create_voice_channel("📻 Dispatch Radio", category=public_cat, reason="Pulse Dispatch setup")
+            radio = await guild.create_voice_channel("📻 Dispatch Radio", category=public_cat, reason="Hive Dispatch setup")
             created.append(radio.mention)
         vs = await self.bot.voice.settings(guild.id)
         if not vs["channel_id"]:
@@ -183,7 +183,7 @@ class SetupCog(commands.Cog):
                  "5. Units register with `/unit-register`.",
                  "6. `/logs settings` → choose which events are logged. `/dashboard` → add dashboards any time."]
         await interaction.followup.send(
-            f"✅ **Pulse Dispatch — {PRESETS[preset][0]}** is ready.\n"
+            f"✅ **Hive Dispatch — {PRESETS[preset][0]}** is ready.\n"
             f"Created: {', '.join(created) or 'nothing new'}\n"
             f"Dashboards posted: {', '.join(posted) or ('none (dashboards are optional)' if not panels else 'all already present')}"
             + (f"\nRemoved: {', '.join(removed)}" if removed else "") + "\n\n**Next steps**\n" + "\n".join(steps),
@@ -224,7 +224,7 @@ class SetupCog(commands.Cog):
 
 def _preset_embed() -> discord.Embed:
     from bot import embeds as E
-    e = E.base("🛠️ Pulse Dispatch Setup", description="Choose what this server needs. Dashboards are optional and can be "
+    e = E.base("🛠️ Hive Dispatch Setup", description="Choose what this server needs. Dashboards are optional and can be "
                                                     "added or removed later with `/dashboard`. **Logging is always available.**")
     e.add_field(name="📡 Dispatch Only", value="Plain-language #dispatch channel + radio. No panels.", inline=False)
     e.add_field(name="📋 Dispatch + Logs", value="Dispatch Only + #dispatch-log with live incident cards and log embeds.", inline=False)

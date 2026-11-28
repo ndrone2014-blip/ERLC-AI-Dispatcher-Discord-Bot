@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 async def _provider_ac(interaction: discord.Interaction, current: str):
-    from bot.commands.pulse_ai import provider_autocomplete
+    from bot.commands.hive_ai import provider_autocomplete
     return await provider_autocomplete(interaction, current)
 
 
@@ -170,10 +170,10 @@ class SystemCog(commands.Cog):
         ok, msg, _ = await self.bot.sync.test_connection(interaction.guild_id)
         await interaction.followup.send(("🟢 " if ok else "🔴 ") + msg, ephemeral=True)
 
-    @app_commands.command(name="help", description="Pulse Dispatch commands by category")
+    @app_commands.command(name="help", description="Hive Dispatch commands by category")
     async def help(self, interaction: discord.Interaction):
         from bot import embeds as E
-        from bot.commands.pulse_info import HelpView, help_embed
+        from bot.commands.hive_info import HelpView, help_embed
         look = await E.look_for(self.bot, interaction.guild_id)
         await reply(interaction, embed=help_embed("home", look), view=HelpView(look))
 

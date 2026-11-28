@@ -4,7 +4,7 @@ Every log event is ALWAYS stored in the database (`dispatch_log`) so `/logs view
 with no log channel and with every dashboard disabled. If a log channel is configured the
 event is also posted there as a clean embed. Administrators choose:
 
-  * the main log channel (existing channel or an auto-created #pulse-logs)
+  * the main log channel (existing channel or an auto-created #hive-logs)
   * which categories are enabled
   * an optional separate channel per category
 """

@@ -57,7 +57,7 @@ class NotificationService:
         channel_id = (s.get("channels") or {}).get(kind)
         if channel_id:
             embed = {"title": f"🔔 {clean_text(title, 200)}", "description": clean_text(body, 1500) or None,
-                     "color": SEVERITY_COLOUR[severity], "footer": {"text": "Pulse Dispatch | ERLC • Notification"}}
+                     "color": SEVERITY_COLOUR[severity], "footer": {"text": "Hive Dispatch | ERLC • Notification"}}
             await self.p.actions.send(guild_id, int(channel_id), embed=embed)
         return nid
 

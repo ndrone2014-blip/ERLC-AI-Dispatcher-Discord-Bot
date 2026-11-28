@@ -1,4 +1,4 @@
-/* Pulse Dispatch | ER:LC — web dashboard core (v5.0, no build step, no dependencies).
+/* Hive Dispatch | ER:LC — web dashboard core (v5.0, no build step, no dependencies).
  *
  * Security: server data is always inserted as text (textContent / text nodes), never as HTML, so names, reasons
  * and messages typed by members can't inject markup. Only the static icon strings below are parsed as SVG.
@@ -522,7 +522,7 @@ async function boot() {
 }
 function gate(...kids) {
   return h("main", { class: "gate" }, h("div", { class: "gate-glow", "aria-hidden": "true" }), h("div", { class: "gate-box" },
-    h("img", { class: "gate-banner", src: "/static/brand/banner.png", alt: "Pulse Dispatch | ER:LC" }), kids));
+    h("img", { class: "gate-banner", src: "/static/brand/banner.png", alt: "Hive Dispatch | ER:LC" }), kids));
 }
 function renderLogin(app) {
   clear(app, gate(h("h1", null, "Sign in to your command center"),
@@ -584,7 +584,7 @@ function renderShell() {
   clear($("#app"), h("div", { class: "shell" },
     h("aside", { class: "side", "aria-label": "Main menu" },
       h("a", { class: "side-head", href: `#/g/${S.gid}/dashboard` }, h("img", { class: "brand-mark", src: "/static/brand/mark-192.png", alt: "" }),
-        h("div", { class: "brand-name" }, h("b", null, "PULSE DISPATCH"), h("span", null, "ER:LC COMMAND CENTER"))),
+        h("div", { class: "brand-name" }, h("b", null, "HIVE DISPATCH"), h("span", null, "ER:LC COMMAND CENTER"))),
       h("div", { class: "side-guild" }, S.meta.guild.icon ? h("img", { src: S.meta.guild.icon, alt: "" }) : h("span", { class: "gi" }, initials(S.meta.guild.name)), guildSel, icon("chevronDown", "caret")),
       nav,
       h("div", { class: "side-foot" }, avatar(S.me.user.name, S.me.user.avatar, "sm"),
@@ -598,7 +598,7 @@ function renderShell() {
         h("button", { class: "top-search", onclick: () => openPalette(), "aria-label": "Search and commands" }, icon("search"), h("span", null, "Search players, members, cases…"), h("kbd", null, navigator.platform.includes("Mac") ? "⌘K" : "Ctrl K")),
         h("span", { class: "grow" }),
         h("span", { class: "live-ind", id: "live-ind", title: "Live updates" }, dot("off"), h("span", null, "Connecting")),
-        can("assistant.use") ? tip(h("button", { class: "icon-btn", "aria-label": "Ask Pulse", onclick: openAssistant }, icon("sparkles")), "Ask Pulse") : null,
+        can("assistant.use") ? tip(h("button", { class: "icon-btn", "aria-label": "Ask Hive", onclick: openAssistant }, icon("sparkles")), "Ask Hive") : null,
         bell),
       h("main", { class: "content", id: "content", tabindex: "-1" }))));
   document.addEventListener("click", (e) => { if (document.body.classList.contains("nav-open") && e.target.closest(".nav a")) document.body.classList.remove("nav-open"); });
@@ -622,7 +622,7 @@ async function renderPage(path) {
   const p = PAGES[key];
   const grp = S.meta.nav.find((g) => g.items.some((i) => i.path === navKey));
   clear($("#crumbs"), grp ? h("span", { class: "muted" }, grp.group) : null, grp ? icon("chevronRight") : null, h("b", null, p.title));
-  document.title = `${p.title} · ${S.meta.guild.name} — Pulse Dispatch`;
+  document.title = `${p.title} · ${S.meta.guild.name} — Hive Dispatch`;
   remember(key, p.title);
   clear(el, skeleton());
   window.scrollTo(0, 0);
@@ -792,7 +792,7 @@ function paletteActions() {
   if (can("mod.warn")) a.push({ title: "New Discord moderation case", icon: "shield", run: () => typeof caseCreate === "function" && caseCreate() });
   if (can("incident.manual_create")) a.push({ title: "New incident", icon: "siren", run: () => typeof incidentCreate === "function" && incidentCreate(() => go("dispatch")) });
   if (can("shift.self")) a.push({ title: "Request leave (LOA)", icon: "calendar", run: () => go("staff/leave") });
-  if (can("assistant.use")) a.push({ title: "Ask Pulse", icon: "sparkles", run: openAssistant });
+  if (can("assistant.use")) a.push({ title: "Ask Hive", icon: "sparkles", run: openAssistant });
   a.push({ title: "Notifications", icon: "bell", run: openNotifications });
   a.push({ title: "Sign out", icon: "logout", run: logout });
   return a;
@@ -853,7 +853,7 @@ document.addEventListener("keydown", (e) => {
 function maybeOnboard() {
   if (S.prefs?.onboarded || store.get(`pd-onboarded-${S.gid}`, false)) return;
   const steps = [
-    ["Welcome to Pulse Dispatch", "Your free ER:LC command center: live server, moderation, staff, BOLOs and dispatch in one place. Everything you see comes from real data.", "home"],
+    ["Welcome to Hive Dispatch", "Your free ER:LC command center: live server, moderation, staff, BOLOs and dispatch in one place. Everything you see comes from real data.", "home"],
     ["Find anything fast", "Press Ctrl K (⌘K on Mac) or / to search players, members, cases and BOLOs, or to run quick actions like starting your shift.", "command"],
     ["It updates itself", "Joins, moderation, shifts and notifications arrive live. The page never reloads, so you never lose what you were typing.", "zap"],
   ];
@@ -867,9 +867,9 @@ function maybeOnboard() {
     { label: "Next", primary: true, onClick: () => { if (++i >= steps.length) return; draw(); if (i === steps.length - 1) m.box.querySelector("footer .primary").textContent = "Get started"; return true; } }] });
 }
 
-// ---------------------------------------------------------------------------- Ask Pulse
+// ---------------------------------------------------------------------------- Ask Hive
 function assistantBox() {
-  const inp = h("input", { type: "text", placeholder: "Ask: any active calls? who's on shift? start my shift", maxlength: 500, "aria-label": "Ask Pulse" });
+  const inp = h("input", { type: "text", placeholder: "Ask: any active calls? who's on shift? start my shift", maxlength: 500, "aria-label": "Ask Hive" });
   const out = h("div", { class: "ask-out", "aria-live": "polite" });
   const send = async () => {
     const q = inp.value.trim(); if (!q) return;
@@ -890,7 +890,7 @@ function showReply(out, r) {
     } }, r.confirm.prompt) : null,
     h("div", { class: "small muted" }, `${src} · ${Math.round(r.latency_ms)} ms`)));
 }
-function openAssistant() { modal({ title: "Ask Pulse", body: assistantBox() }); }
+function openAssistant() { modal({ title: "Ask Hive", body: assistantBox() }); }
 
 window.addEventListener("hashchange", () => { if (S.me?.signed_in) route(); });
 document.documentElement.dataset.theme = "dark"; // v5.0: dark mode only
