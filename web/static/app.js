@@ -522,7 +522,7 @@ async function boot() {
 }
 function gate(...kids) {
   return h("main", { class: "gate" }, h("div", { class: "gate-glow", "aria-hidden": "true" }), h("div", { class: "gate-box" },
-    h("img", { class: "gate-banner", src: "/static/brand/banner.png", alt: "Hive Dispatch | ER:LC" }), kids));
+    h("img", { class: "gate-banner", src: "/static/brand/banner.png?v=5.0.1", alt: "Hive Dispatch | ER:LC" }), kids));
 }
 function renderLogin(app) {
   clear(app, gate(h("h1", null, "Sign in to your command center"),

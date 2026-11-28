@@ -20,6 +20,9 @@ export default async (request, context) => {
   for (const h of ["host", "x-hive-proxy-secret", "x-hive-client-ip", "x-pulse-proxy-secret", "x-pulse-client-ip", "content-length", "accept-encoding"]) headers.delete(h);
   headers.set("X-Hive-Proxy-Secret", secret);
   if (context && context.ip) headers.set("X-Hive-Client-IP", context.ip);
+  // Also send the pre-rename header names so a bot that hasn't been updated with git pull yet still accepts requests.
+  headers.set("X-Pulse-Proxy-Secret", secret);
+  if (context && context.ip) headers.set("X-Pulse-Client-IP", context.ip);
   headers.set("ngrok-skip-browser-warning", "true"); // ngrok's free plan shows a warning page to browsers otherwise
   headers.set("accept-encoding", "identity");
 
