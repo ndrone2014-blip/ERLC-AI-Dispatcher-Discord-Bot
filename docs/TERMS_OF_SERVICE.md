@@ -3,7 +3,7 @@
 **Effective date:** November 27, 2026
 **Last updated:** November 27, 2026
 
-These Terms of Service ("Terms") are an agreement between you and **Drone Hive Studios** ("we", "us") for your use of **Hive Dispatch | ERLC** ("Hive Dispatch", "the Bot") and its web dashboard at **pulsedispatchpanel.netlify.app** (together, "the Service").
+These Terms of Service ("Terms") are an agreement between you and **Drone Hive Studios** ("we", "us") for your use of **Hive Dispatch | ERLC** ("Hive Dispatch", "the Bot") and its web dashboard at **dispatchpanel.netlify.app** (together, "the Service").
 
 By adding the Bot to a server, using its commands or features, or signing in to the dashboard, you agree to these Terms and our [Privacy Policy](PRIVACY_POLICY.md). If you don't agree, don't use the Service.
 

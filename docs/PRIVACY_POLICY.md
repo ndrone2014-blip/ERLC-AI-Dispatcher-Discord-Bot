@@ -3,7 +3,7 @@
 **Effective date:** November 27, 2026
 **Last updated:** November 27, 2026
 
-This Privacy Policy explains what information **Hive Dispatch | ERLC** ("Hive Dispatch", "the Bot", "we", "us") collects, how it is used, and the choices you have. It covers the Discord bot and its web dashboard at **pulsedispatchpanel.netlify.app** (together, "the Service").
+This Privacy Policy explains what information **Hive Dispatch | ERLC** ("Hive Dispatch", "the Bot", "we", "us") collects, how it is used, and the choices you have. It covers the Discord bot and its web dashboard at **dispatchpanel.netlify.app** (together, "the Service").
 
 Hive Dispatch is developed by **Drone Hive Studios** (Developer: @ndrone40). It is a free hobby project with no paid tiers.
 
